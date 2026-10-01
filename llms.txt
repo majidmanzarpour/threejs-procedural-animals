@@ -1,0 +1,191 @@
+# three.js Procedural Animals
+
+> npm package `procedural-animals`: 24 fully procedural, animated animals for three.js (r160+). Bodies are SDF-sculpted, meshed, dual-quaternion skinned and covered with generated fur, feathers or scales; IK locomotion and an action system per body plan. No model, texture or animation files. One call builds an animal (in Web Workers), you add `animal.object` to the scene, steer it with `move` / `moveTo` / `follow`, play actions, and call `animal.update(dt)` every frame.
+
+Live showcase: https://majidmanzarpour.github.io/threejs-procedural-animals/
+Repository: https://github.com/majidmanzarpour/threejs-procedural-animals
+License: MIT. ES modules only; TypeScript declarations in src/index.d.ts (main entry).
+
+## Install
+
+npm install procedural-animals three
+(before the npm release: npm install github:majidmanzarpour/threejs-procedural-animals three)
+Peer dependency: three >= 0.160. No other runtime dependencies. Works in browsers and in Node (Node builds on the calling thread).
+
+## Imports
+
+- `procedural-animals`: createAnimal, Animal, listSpecies, loadSpecies, registerSpecies, addLoader, buildAnimalData, setWorkerFactory, clearBuildCache, writeBake, readBake, QUALITY
+- `procedural-animals/species/<id>`: default export = one species module (pass it to createAnimal instead of the id to bundle exactly that species)
+- `procedural-animals/worker`: the Web Worker entry script (bundle it yourself for setWorkerFactory)
+- `procedural-animals/bake`: writeBake, readBake
+- CLI: `procedural-animals-bake` (bake files have the extension .animal)
+
+## Minimal integration
+
+```js
+import * as THREE from 'three';
+import { createAnimal } from 'procedural-animals';
+
+async function main(scene, renderer, camera) {
+  const wolf = await createAnimal('wolf', { seed: 3, quality: 'high', ground: (x, z) => 0 });
+  scene.add(wolf.object);                       // never transform wolf.object yourself
+  wolf.move({ speed: wolf.gears.trot, heading: Math.PI / 2 });
+  let last = performance.now();
+  renderer.setAnimationLoop((now) => {
+    const dt = (now - last) / 1000;             // seconds
+    last = now;
+    wolf.update(dt);                            // every frame, before render
+    renderer.render(scene, camera);
+  });
+}
+```
+Do not use top-level await in the app entry module (with Vite production builds the dynamically imported species chunks can deadlock on the entry); wrap startup in an async function.
+
+## Conventions
+
+- Units: metres, seconds, radians. +Y up. Heading 0 faces +Z; forward(h) = (sin h, 0, cos h); a larger heading turns left; heading toward a point = Math.atan2(dx, dz).
+- The animal lives in the space of `animal.object.parent`. `animal.object` must keep an identity transform; the library writes bone matrices directly. Place animals with the `position` / `heading` options, then move them with move / moveTo / follow.
+- `ground(x, z)` and `water(x, z)` are in the same space, called many times per frame: keep them cheap (analytic or a height grid), never raycast inside them.
+- Speeds are m/s for the individual (size-scaled); read `animal.gears`.
+- `update(dt)`: dt in seconds, clamped to [0, 0.1]. Call exactly once per frame per animal.
+
+## createAnimal(species, options) -> Promise<Animal>
+
+species: an id string (see Species) or a species module object.
+options (all optional):
+- seed: integer, default 1. Picks the individual (size, proportions, pattern; sex/age/variant when not given). Deterministic.
+- quality: 'hero' | 'high' | 'medium' | 'low' | 'crowd', default 'high'. Mesh resolution is fixed at build time.
+- variant: string, default chosen by seed (breed / coat / morph; per species below).
+- sex: 'male' | 'female', default chosen by seed.
+- age: 'adult' | 'juvenile', default 'adult' (deer, goat, sheep, shark, eagle, chicken: sometimes juvenile by seed).
+- ground: (x, z) => height, default flat y = 0.
+- water: (x, z) => surface height | null where dry. Required for swimmers; land animals use it to drink / wade.
+- perches: Vector3[] that birds can fly to (play('perch')).
+- position: Vector3, default origin (swimmers: start below the water surface). heading: radians, default 0.
+- baked: ArrayBuffer | Promise<ArrayBuffer> of a .animal file: load instead of building (pass the same species id; omit quality). In Node pass an ArrayBuffer, not a Buffer.
+- worker: true (default: module Web Workers when available) | false (build on the calling thread) | () => Worker.
+- castShadow, receiveShadow: boolean, default true.
+- onProgress: (message: string) => void.
+- overrides: object merged over the seeded params (e.g. cat { longhair: true }, sheep { fleece: 0..0.15 }).
+Builds are cached per (species, seed, quality, sex, age, variant, overrides): identical keys share data. clearBuildCache() frees the cache.
+Build cost per individual (one CPU thread, cheetah): hero 5.6 s, high 3.8 s, medium 1.5 s, low 0.8 s, crowd 0.4 s; workers parallelise the meshing jobs.
+
+## Animal
+
+Properties (read only):
+- object: THREE.Object3D to add to the scene (meshes have frustumCulled = false; cull yourself if needed).
+- position: Vector3; heading: number; speed: number (m/s); velocity: Vector3.
+- state: { gait, posture: 'stand'|'sit'|'lie'|'sleep'|'dead'|'standing-up', grounded, ... }; birds: mode 'ground'|'takeoff'|'air'|'landing'|'perch', altitude; swimmers: inWater, depth, breaching.
+- gears: { gearName: m/s } for this individual; gaits: string[]; actions: string[].
+- attachments: { name: Object3D } (every species mouth, head, back; birds + footL, footR; horse + seat, stirrupL, stirrupR, bitL, bitR). Add props as children: animal.attachments.mouth.add(mesh).
+- id, seed, params (params.sex, params.age, params.size, params.variant), stats { vertices, triangles, bones, buildMs, updateMs }.
+Methods (all return the animal unless noted):
+- move({ speed = 0, heading?, climb = 0, gait? }): continuous locomotion. climb: m/s for birds (>= 0.5 or faster than the fastest ground gear takes off), -1..1 path pitch for swimmers. gait forces a named gait.
+- stop(): move({ speed: 0 }).
+- moveTo(point: Vector3 | null, { speed = 3 }): go there, stop, emit 'arrive'. 3D for swimmers.
+- follow(position: Vector3, velocity?: Vector3, { heading? }): match an external physics body; call every frame. position is a ground point for walkers (y ignored), 3D for swimmers. move/moveTo end follow mode.
+- lookAt(target: Vector3 | null): head and eyes track the point (the same Vector3 keeps being tracked).
+- play(name, opts?) -> Promise<'done'|'interrupted'|'stopped'|'refused'>.
+- stopAction(name?): end that action (posture: stand up), or every action except death.
+- on(type, fn) -> unsubscribe function; off(type, fn).
+- update(dt).
+- setQuality(tier): coat detail only (fur shell count, silhouette fins, eye meshes) on the existing mesh.
+- setLod(0|1|2): motion detail (0 full, 1 reduced secondary motion, 2 crowd).
+- setDebug(mode, on): 'albedo' | 'weights' | 'material' | 'bare'.
+- setCoverings(on): show / hide fur shells and fins.
+- dispose(): frees GPU resources and removes object from its parent.
+
+## Actions
+
+Every species: idle (automatic), jump, sit, lie, sleep, eat, drink, attack, hit, death, stand.
+Birds add takeoff, land, perch, glide, flap. Swimmers add burst. Snake adds coil, strike. Hoppers (rabbit, frog) add hop.
+play options: target (Vector3: jump / attack / perch), direction (Vector3: hit, death fall direction), loop (eat, drink until stopAction), duration (s: eat, drink), side (1 | -1: lie, sleep, death), speed (time scale).
+Rules: postures (sit, lie, sleep, death) replace locomotion until a move request (the animal stands first). One-shots (jump, attack, hit, eat, drink) blend over locomotion; a new one-shot interrupts the running one ('interrupted'). A jump in the air cannot be cut (other requests 'refused'; hit layers). Dead: everything but hit refused until play('stand'). Birds: eat / drink / jump refused in the air.
+
+## Events (animal.on)
+
+footstep { foot, position, speed, strength 0..1 }; attackHit { position, direction, style } (use for hit tests); actionStart / actionEnd { name, reason }; arrive {} (moveTo reached); takeoff / land { position, speed, splash? }; death { position }; vocalize { kind, position? }; wingbeat { amp } (birds); beach { position, speed } (swimmer leapt onto land). Every payload also has type and animal.
+
+## Species (id: body plan; variants; gaits; extra actions)
+
+- wolf: paws; grey, black, pale, tawny; walk trot canter gallop.
+- dog: paws; shepherd, retriever, terrier; walk trot canter gallop; greet, playbow, sniff, dig.
+- fox: paws; red, cross, silver, urban; walk trot canter gallop; pounce, listen.
+- cat: paws; mackerel, classic, ginger, black, tuxedo, calico, grey (overrides.longhair); walk trot bound gallop; loaf, groom, knead, stalk, slowblink.
+- lion: paws; tawny, white (female = lioness, male mane by age); walk trot gallop; roar, yawn.
+- cheetah: paws; no variants; walk trot canter gallop sprint.
+- bear: paws (plantigrade); eurasian, grizzly, coastal, black; walk amble canter gallop; standup, sniff, dig.
+- rat: paws; wild, agouti, dark, albino, hooded; walk trot gallop halfbound bound; rear, groom, scurry, box.
+- rabbit: hopper; wild, domestic, agouti-domestic, fawn, black, white, dutch, lop; shuffle halfbound bound; hop, binky, groom, periscope, thump, flee.
+- horse: hooves; bay, darkbay, chestnut, black, grey, palomino, dun, buckskin; walk trot canter gallop; rideable attachments.
+- deer: hooves; summer, winter (male antlers by age); walk trot gallop bound; stomp, alert, flee.
+- cow: hooves; holstein, hereford, angus, jersey, highland; walk trot canter gallop; lick, chew, moo, swish, shake.
+- pig: hooves; largewhite, landrace, duroc, hampshire, berkshire, spotted; walk trot gallop; wallow, grunt, sniff, root, frolic.
+- sheep: hooves; whiteface, suffolk, merino, black, shorn (overrides.fleece m); walk trot canter gallop; alert, bleat, headshake, stamp, pronk.
+- goat: hooves; saanen, alpine, pied, nubian, boer; walk trot gallop; browse, bleat, headshake, paw.
+- boar: hooves; adult, yearling, piglet; walk trot gallop; sniff, grunt, headshake.
+- frog: hopper; bullfrog, bullfrog-pale, common-frog; crawl hop; hop, croak, blink.
+- chicken: bird; red, leghorn, australorp, barred, buff, speckled (male rooster, juvenile chick); walk run fly.
+- crow: bird; american, carrion, hooded; walk hop fly.
+- eagle: bird; bald, golden; walk hop run fly.
+- fish: swimmer; trout, goldfish, clownfish, bluegill; scull cruise sprint; burst.
+- shark: swimmer; white, blacktip; patrol cruise sprint; burst.
+- snake: snake; corn, rattlesnake; crawl slither dash; coil, strike.
+- spider: spider; wolf, tarantula; walk run.
+Every species accepts sex and age: 'juvenile'. loadSpecies(id).variants lists variants as strings or { id, name, latin } objects (horse and rabbit accept the variants above without listing them).
+
+## Quality tiers (QUALITY = { tier: { res, shells, fins, eyePatches } })
+
+hero 110-130k vertices, 5 draw calls, 40 shells (close-ups). high 65-80k, 5, 28 (default, the player's animal). medium 25-32k, 4, 16 (mid distance, phones). low 11-15k, 4, 8 (far). crowd 5-8k, 1 draw call, no shells (crowds of 100 with setLod(2)). One extra shadow draw per shadow-casting light.
+CPU budget: <= 0.12 ms per update at LOD 0; <= 0.08 ms per animal in a crowd (crowd tier + setLod(2)).
+
+## Web Workers
+
+Default: new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }) inside the library; one worker per meshing job; falls back to the calling thread where Worker is undefined. If a worker cannot start, createAnimal rejects: retry with worker: false.
+- Vite: vite.config.js `export default { worker: { format: 'es' }, build: { target: 'es2022' }, optimizeDeps: { exclude: ['procedural-animals'] } }`.
+- webpack 5 / Parcel 2: the new URL worker pattern is understood natively.
+- Other bundlers / no bundler: `esbuild node_modules/procedural-animals/src/worker.js --bundle --format=iife --minify --outfile=public/animal-worker.js`, then `setWorkerFactory(() => new Worker('/animal-worker.js'))`.
+- Custom species in workers: a worker module that imports 'procedural-animals/worker' and calls addLoader(id, () => import(...)).
+
+## Baking (.animal files)
+
+CLI: `npx procedural-animals-bake <species> [--seed N] [--quality tier] [--sex male|female] [--age adult|juvenile] [-o file.animal]`; `npx procedural-animals-bake --verify file.animal`. The CLI verifies the round trip and that the file loads and animates.
+Variants or scripted bakes (Node): `fs.writeFileSync(out, new Uint8Array(writeBake(await buildAnimalData('horse', { seed: 7, quality: 'medium', variant: 'palomino' }))))`.
+Load: `createAnimal('wolf', { baked: fetch('/wolf-3.animal').then((r) => r.arrayBuffer()), ground })`. A high-tier cheetah is ~9 MB (4.4 MB gzipped) and loads in 10-25 ms.
+Format: 4-byte magic "PANM", u32 version, u32 header length, JSON header, 8-aligned typed-array blobs.
+
+## Species registry
+
+listSpecies() -> string[]. loadSpecies(id | module) -> Promise<species module> ({ id, name, latin, plan, group, covering, variants, ... }). registerSpecies(module). addLoader(id, () => import(...)). Registrations are per thread (main thread vs workers).
+
+## Recipes
+
+- Herd: many animals from a few seeds (shared builds), quality 'crowd', setLod(2), castShadow false; hide off-screen animals (object.visible) since meshes are never frustum culled.
+- Player: map keys to heading (+ turns left) and to sorted Object.values(animal.gears); play('jump') on keydown.
+- NPC: moveTo a random point at the slowest gear; on 'arrive' play('eat', { duration }) then pick another; flee with move({ speed: fastest gear, heading: Math.atan2(away.x, away.z) }).
+- Collisions: not provided. Either steer (adjust heading before move) or let your physics body drive: animal.follow(body.position, body.velocity) every frame.
+- Distance LOD: setQuality(near ? 'high' : 'medium' / 'low') and setLod(0/1/2) by camera distance; to change mesh resolution build a new animal at the old position / heading and dispose the old one.
+- Disposal: animal.dispose(); clearBuildCache() when the builds are no longer needed.
+
+## Pitfalls
+
+- Setting animal.object.position / rotation / scale: double transforms. Keep identity.
+- Missing update(dt) or dt in milliseconds: frozen or broken motion.
+- Top-level await in the Vite entry module: build hangs at createAnimal.
+- Vite dev without optimizeDeps.exclude, or esbuild without a worker bundle: "worker failed" rejection.
+- ground not matching the rendered terrain or in another space: floating / sinking feet.
+- Swimmer without water or spawned above the surface: it beaches.
+- Hard-coded gear names ('gallop'): differ per species; use animal.gears.
+- setQuality does not change triangle counts: choose the build tier.
+- follow called once: must be called every frame.
+- Variant lists in loadSpecies(id).variants mix strings and objects.
+
+## Docs
+
+- [README](https://github.com/majidmanzarpour/threejs-procedural-animals/blob/main/README.md): install, quickstart, API overview, species table
+- [src/index.d.ts](https://github.com/majidmanzarpour/threejs-procedural-animals/blob/main/src/index.d.ts): TypeScript declarations of the public API
+- [docs/AUTHORING.md](https://github.com/majidmanzarpour/threejs-procedural-animals/blob/main/docs/AUTHORING.md): adding a species (rig, sculpt, regions, coat, eyes, motion)
+
+## Optional
+
+- [Showcase source](https://github.com/majidmanzarpour/threejs-procedural-animals/tree/main/showcase/src): a full app using the public API (main.js), including the "use in your game" code generator (codegen.js)

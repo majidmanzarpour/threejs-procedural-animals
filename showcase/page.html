@@ -1,0 +1,332 @@
+<title>THREE.JS PROCEDURAL ANIMALS</title>
+<meta name="description" content="24 fully procedural animals for three.js: every body, coat and motion is generated in your browser. No models, no textures, no downloads.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ink: rgba(20,17,13,.7);
+  --ink-strong: rgba(20,17,13,.82);
+  --ink-solid:#14110d;
+  --paper:#f3ebdd;
+  --dust:#b3a58d;
+  --ochre:#e3a23b;
+  --ochre-dim:rgba(227,162,59,.16);
+  --line: rgba(243,235,221,.14);
+  --display:"Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --ui:"Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --gut:16px;
+  --dockH:120px;
+  color-scheme: dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0;background:#1d1812;overflow:hidden;color:var(--paper);font-family:var(--ui);-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+#app{position:fixed;inset:0;overflow:hidden}
+#app *{box-sizing:border-box}
+canvas#gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+#vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 120% 95% at 50% 45%,transparent 55%,rgba(10,8,5,.42) 100%)}
+.glass{background:var(--ink);backdrop-filter:blur(14px) saturate(1.1);-webkit-backdrop-filter:blur(14px) saturate(1.1);border:1px solid var(--line);border-radius:14px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--ochre);outline-offset:2px}
+button:disabled{opacity:.4;cursor:default}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* title card */
+#title{position:absolute;left:var(--gut);top:calc(var(--gut) + env(safe-area-inset-top,0px));padding:13px 16px 12px;min-width:230px;max-width:min(330px,calc(100vw - 32px));pointer-events:none}
+#title .eyebrow{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--dust);margin-bottom:6px}
+#title .eyebrow{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px}
+#title .eyebrow b{color:var(--paper);font-weight:700}
+#title .eyebrow a{pointer-events:auto;color:var(--dust);text-decoration:none;border-bottom:1px solid rgba(179,165,141,.45);letter-spacing:.14em}
+#title .eyebrow a:hover{color:var(--ochre);border-color:var(--ochre)}
+#title h1{font-family:var(--display);font-weight:400;font-size:31px;line-height:1;margin:0;letter-spacing:.2px}
+#title h1 i{color:var(--ochre)}
+#title .sub{font-size:12px;color:var(--dust);margin-top:6px}
+#status{margin-top:11px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+#status .dot{width:7px;height:7px;border-radius:50%;background:var(--ochre);box-shadow:0 0 10px var(--ochre);flex:none}
+#stats{display:flex;gap:16px;margin-top:9px}
+#stats>div{display:flex;flex-direction:column;gap:3px}
+#stats .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:18px;color:var(--paper)}
+#stats .k{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dust)}
+
+/* top right */
+#topRight{position:absolute;right:var(--gut);top:calc(var(--gut) + env(safe-area-inset-top,0px));display:flex;gap:8px;align-items:center;z-index:3}
+.seg{display:flex;gap:2px;background:rgba(0,0,0,.25);border-radius:10px;padding:3px}
+.seg button{padding:7px 11px;border-radius:8px;font-size:12.5px;font-weight:600;color:rgba(243,235,221,.72);transition:background .15s,color .15s;white-space:nowrap}
+.seg button:hover{color:var(--paper)}
+.seg button[aria-pressed="true"]{background:var(--paper);color:var(--ink-solid)}
+#camSeg{padding:4px;border-radius:12px}
+#panelBtn{padding:10px 14px;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:flex;gap:8px;align-items:center}
+#panelBtn[aria-expanded="true"]{background:var(--paper);color:var(--ink-solid)}
+
+/* panel */
+#panel{position:absolute;right:var(--gut);top:calc(66px + env(safe-area-inset-top,0px));width:344px;max-height:calc(100% - 66px - var(--dockH) - 32px);display:flex;flex-direction:column;z-index:4;overflow:hidden}
+#tabs{display:flex;gap:2px;padding:6px 6px 0;border-bottom:1px solid var(--line);flex:none;overflow-x:auto;scrollbar-width:none}
+#tabs::-webkit-scrollbar{display:none}
+#tabs button{padding:9px 9px 10px;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:rgba(243,235,221,.62);border-bottom:2px solid transparent;white-space:nowrap}
+#tabs button[aria-selected="true"]{color:var(--paper);border-color:var(--ochre)}
+#tabs #panelClose{margin-left:auto;font-size:13px;letter-spacing:0;padding:9px 10px 10px}
+.tab{padding:14px 14px 16px;overflow:auto;display:flex;flex-direction:column;gap:14px;min-height:0}
+.tab h3{font-family:var(--display);font-weight:400;font-size:19px;margin:0}
+.row{display:flex;flex-direction:column;gap:6px}
+.lbl,.row>label{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dust);display:flex;justify-content:space-between;gap:8px}
+.lbl output{font-family:var(--mono);letter-spacing:0;text-transform:none;color:var(--paper)}
+.inline{display:flex;gap:6px;align-items:center}
+.toggle{display:flex;align-items:center;justify-content:space-between;font-size:13px;padding:3px 0;gap:10px;cursor:pointer}
+.toggle small{display:block;color:var(--dust);font-size:11px;margin-top:1px}
+.toggle input{appearance:none;flex:none;width:34px;height:20px;border-radius:20px;background:rgba(255,255,255,.18);position:relative;cursor:pointer;transition:background .15s;margin:0}
+.toggle input::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--paper);transition:transform .15s}
+.toggle input:checked{background:var(--ochre)}
+.toggle input:checked::after{transform:translateX(14px)}
+input[type=range]{width:100%;accent-color:var(--ochre);margin:4px 0}
+select,input[type=number],input[type=text]{background:rgba(0,0,0,.35);color:var(--paper);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:inherit;font-size:13px;min-width:0}
+input[type=number]{font-family:var(--mono);width:100%}
+.btn{padding:7px 11px;border-radius:8px;border:1px solid var(--line);font-size:12.5px;font-weight:600;white-space:nowrap}
+.btn:hover{border-color:rgba(243,235,221,.35)}
+.btn.primary{background:var(--ochre);color:var(--ink-solid);border-color:var(--ochre)}
+.note{font-size:11.5px;line-height:1.5;color:var(--dust);margin:0}
+.note b{color:var(--paper);font-weight:600}
+.seg.full{width:100%}
+.seg.full button{flex:1}
+
+/* species list */
+#speciesList{display:flex;flex-direction:column;gap:10px}
+.sgroup .gl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dust);margin:0 0 4px 2px}
+.sgroup .items{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.sp{display:flex;flex-direction:column;align-items:flex-start;padding:8px 10px;border-radius:10px;border:1px solid var(--line);text-align:left;min-width:0}
+.sp span{font-size:13px;font-weight:700}
+.sp i{font-family:var(--display);font-size:14px;color:var(--dust);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.sp[aria-pressed="true"]{background:var(--ochre-dim);border-color:var(--ochre)}
+.sp[aria-pressed="true"] i{color:var(--ochre)}
+.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.vgrid .sp.auto{border-style:dashed;border-color:rgba(227,162,59,.6)}
+
+/* code */
+#code{margin:0;font-family:var(--mono);font-size:11.3px;line-height:1.55;white-space:pre;overflow:auto;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:10px;padding:12px;color:#e9dfcd;tab-size:2;max-height:none}
+#code .k{color:#e3a23b}#code .s{color:#a9cf8a}#code .n{color:#e6b8ff}#code .c{color:#8a7f6c;font-style:italic}#code .f{color:#8fc7e8}
+.codebar{display:flex;justify-content:space-between;align-items:center;gap:8px}
+
+/* dock */
+#dock{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--gut) + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;padding:8px;width:min(760px,calc(100vw - 2*var(--gut)));z-index:3}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:1px}
+.chips::-webkit-scrollbar{display:none}
+.chip{padding:8px 12px;border-radius:999px;border:1px solid var(--line);font-size:12.5px;font-weight:600;white-space:nowrap;text-transform:capitalize;flex:none;transition:background .15s,border-color .15s}
+.chip:hover{border-color:rgba(243,235,221,.4)}
+.chip.on{background:var(--ochre);color:var(--ink-solid);border-color:var(--ochre)}
+.chip.warn{color:#ffb39a}
+#actionsWrap{display:flex;align-items:center;gap:8px;min-width:0}
+#actionsWrap .lbl{flex:none;padding-left:4px}
+#actions{flex:1;min-width:0}
+.dockRow{display:flex;align-items:center;gap:8px;min-width:0}
+.pill{padding:8px 13px;border-radius:10px;font-size:12.5px;font-weight:700;border:1px solid var(--line);display:flex;align-items:center;gap:7px;white-space:nowrap;flex:none}
+.pill[aria-pressed="true"]{background:var(--ochre);color:var(--ink-solid);border-color:var(--ochre)}
+#gaitSeg{overflow-x:auto;scrollbar-width:none;flex:0 1 auto;min-width:0}
+#gaitSeg::-webkit-scrollbar{display:none}
+#gaitSeg button{text-transform:capitalize}
+.speed{display:flex;align-items:center;gap:8px;flex:1;min-width:150px}
+.speed output{font-family:var(--mono);font-size:12px;white-space:nowrap;color:var(--paper);min-width:98px;text-align:right;flex:none}
+.hint{font-size:11px;color:var(--dust);text-align:center}
+.hint kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--line);border-radius:4px;padding:0 4px}
+
+/* footfalls */
+#gaitCard{position:absolute;left:var(--gut);bottom:calc(var(--gut) + env(safe-area-inset-bottom,0px));padding:10px 12px 8px;width:250px;z-index:2}
+#gaitCard .lbl{margin-bottom:6px}
+#gaitCard canvas{width:100%;height:66px;display:block}
+
+/* perf HUD */
+#perf{position:absolute;left:50%;transform:translateX(-50%);top:calc(var(--gut) + env(safe-area-inset-top,0px));padding:8px 12px;display:grid;grid-template-columns:repeat(6,auto);gap:4px 14px;font-size:12px;z-index:2;pointer-events:none;white-space:nowrap}
+#perf .k{font-family:var(--ui);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dust)}
+#perf .v{font-size:15px}
+
+/* compare split */
+#split{position:absolute;inset:0;pointer-events:none}
+#split .divider{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(243,235,221,.35)}
+#split .tag{position:absolute;bottom:calc(var(--dockH) + 28px);padding:7px 11px;font-size:12px;border-radius:10px}
+#split .tag i{font-family:var(--display);font-size:15px;color:var(--ochre)}
+#tagA{right:calc(50% + var(--gut))}#tagB{right:var(--gut)}
+#panel.wide{width:min(540px,calc(100vw - 2*var(--gut)))}
+
+/* touch */
+#joy{position:absolute;left:calc(var(--gut) + 8px);bottom:calc(var(--dockH) + 30px + env(safe-area-inset-bottom,0px));width:112px;height:112px;border-radius:50%;background:rgba(20,17,13,.35);border:1px solid var(--line);touch-action:none;z-index:3}
+#joy .knob{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:rgba(243,235,221,.85);box-shadow:0 2px 10px rgba(0,0,0,.35)}
+#climb{position:absolute;right:calc(var(--gut) + 8px);bottom:calc(var(--dockH) + 30px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;z-index:3}
+#climb button{width:54px;height:54px;border-radius:50%;font-size:18px;touch-action:none}
+
+/* build toast + loader */
+#toast{position:absolute;left:50%;top:calc(var(--gut) + env(safe-area-inset-top,0px));transform:translateX(-50%);padding:10px 14px;min-width:240px;z-index:6;font-size:13px}
+#toast .bar,.lbar{height:3px;border-radius:3px;background:rgba(243,235,221,.14);overflow:hidden;margin-top:8px}
+#toast .bar i,.lbar i{display:block;height:100%;width:0;background:var(--ochre);transition:width .25s}
+#loader{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 60%,rgba(58,44,28,.72) 0%,rgba(22,18,13,.93) 72%);z-index:10;transition:opacity .8s}
+#loader.done{opacity:0;pointer-events:none}
+#loader .box{width:min(380px,calc(100vw - 48px))}
+#loader .eyebrow{font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--dust)}
+#loader h1{font-family:var(--display);font-weight:400;font-size:46px;margin:6px 0 4px;line-height:1}
+#loader h1 i{color:var(--ochre)}
+#loader p{color:var(--dust);font-size:13px;margin:0 0 18px;line-height:1.5}
+#loader ol{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;font-size:13px}
+#loader li{display:flex;align-items:center;gap:10px;color:rgba(243,235,221,.4)}
+#loader li::before{content:"";width:8px;height:8px;border-radius:50%;border:1px solid currentColor}
+#loader li.on{color:var(--paper)}
+#loader li.on::before{background:var(--ochre);border-color:var(--ochre);box-shadow:0 0 10px var(--ochre)}
+#loader li.ok{color:var(--dust)}
+#loader li.ok::before{background:var(--dust);border-color:var(--dust)}
+#err{color:#ff9d7a;font-family:var(--mono);font-size:12px;white-space:pre-wrap;margin-top:12px}
+
+@media (max-width:1320px){ #gaitCard{bottom:calc(var(--dockH) + 2*var(--gut) + env(safe-area-inset-bottom,0px))} }
+@media (max-width:1180px) and (min-width:761px){ #perf{left:auto;right:var(--gut);transform:none;top:calc(70px + env(safe-area-inset-top,0px));grid-template-columns:repeat(3,auto)} }
+@media (max-width:760px){
+  :root{--gut:10px}
+  #title{padding:9px 12px 9px;min-width:0;max-width:calc(100vw - 150px)}
+  #title .eyebrow{font-size:8.5px;letter-spacing:.14em;margin-bottom:4px}
+  #title h1{font-size:22px}
+  #title .sub{font-size:11px;margin-top:4px}
+  #status{font-size:12px;margin-top:7px}
+  #stats{display:none}
+  #camSeg button{padding:7px 10px;font-size:12px}
+  #camSeg button[aria-pressed="false"]{display:none}
+  #camSeg button[aria-pressed="true"]::before{content:"Camera · ";font-weight:500;opacity:.7}
+  #topRight{flex-direction:column;align-items:flex-end;gap:6px}
+  #panelBtn{padding:9px 12px}
+  #panel{left:0;right:0;top:auto;bottom:0;width:auto;max-height:42%;border-radius:18px 18px 0 0;padding-bottom:env(safe-area-inset-bottom,0px)}
+  .tab{padding:12px 14px 18px}
+  #gaitCard{display:none}
+  #dock{left:var(--gut);right:var(--gut);transform:none;width:auto;padding:7px;gap:7px}
+  .dockRow{flex-wrap:wrap}
+  #gaitSeg{flex:1 1 auto}
+  .speed{flex-basis:100%;min-width:0}
+  .speed output{min-width:88px}
+  .hint{display:none}
+  #perf{top:calc(var(--gut) + 104px + env(safe-area-inset-top,0px));left:var(--gut);transform:none;grid-template-columns:repeat(3,auto);font-size:11px;padding:7px 10px}
+  #perf .v{font-size:13px}
+  #panel.wide{width:auto}
+}
+@media (orientation:portrait){
+  #split .divider{left:0;right:0;top:50%;bottom:auto;width:auto;height:1px}
+  #split #tagA{top:calc(50% - 44px);bottom:auto;right:var(--gut)}#split #tagB{top:calc(50% + 10px);bottom:auto;right:var(--gut)}
+}
+@media (hover:none) and (pointer:coarse){ .hint{display:none} }
+@media (prefers-reduced-motion: reduce){ #loader{transition:none} }
+</style>
+<div id="app">
+  <canvas id="gl" tabindex="0" aria-label="3D scene. Drag to orbit the camera; click or tap the ground to send the animal there."></canvas>
+  <div id="vignette"></div>
+  <div id="split" hidden><div class="divider"></div><div class="tag glass" id="tagA"></div><div class="tag glass" id="tagB"></div></div>
+
+  <header id="title" class="glass">
+    <div class="eyebrow"><b>three.js procedural animals</b><a href="https://github.com/majidmanzarpour/threejs-procedural-animals" target="_blank" rel="noopener" title="Source code on GitHub">GitHub ↗</a></div>
+    <h1 id="tName"><i>Procedural animals</i></h1>
+    <div class="sub" id="tSub">&nbsp;</div>
+    <div id="status"><span class="dot"></span><span id="statusText">Starting</span></div>
+    <div id="stats">
+      <div><div class="v" id="sSpeed">0</div><div class="k">km/h</div></div>
+      <div><div class="v" id="sGait">–</div><div class="k">gait</div></div>
+      <div id="altStat" hidden><div class="v" id="sAlt">–</div><div class="k" id="altK">alt m</div></div>
+      <div><div class="v" id="sFps">–</div><div class="k">fps</div></div>
+    </div>
+  </header>
+
+  <div id="topRight">
+    <div class="seg glass" id="camSeg" role="group" aria-label="Camera">
+      <button data-cam="orbit" aria-pressed="false">Orbit</button><button data-cam="follow" aria-pressed="false">Follow</button><button data-cam="director" aria-pressed="true">Director</button>
+    </div>
+    <button id="panelBtn" class="glass" aria-expanded="true" aria-controls="panel">Controls</button>
+  </div>
+
+  <aside id="panel" class="glass" aria-label="Controls">
+    <div id="tabs" role="tablist">
+      <button role="tab" data-tab="animal" aria-selected="true">Animal</button>
+      <button role="tab" data-tab="world" aria-selected="false">World</button>
+      <button role="tab" data-tab="debug" aria-selected="false">Debug</button>
+      <button role="tab" data-tab="modes" aria-selected="false">Modes</button>
+      <button role="tab" data-tab="code" aria-selected="false">Code</button>
+      <button id="panelClose" aria-label="Close controls" title="Close">✕</button>
+    </div>
+    <section class="tab" data-tab="animal">
+      <div id="speciesList"></div>
+      <div class="row" id="variantRow" hidden><span class="lbl">Variant</span><div id="variantList" class="vgrid"></div></div>
+      <div class="row"><label for="seed">Seed <span>every seed is a different individual</span></label>
+        <div class="inline"><input id="seed" type="number" min="0" max="999999" step="1" value="1"><button class="btn" id="dice" title="Random seed">Random</button><button class="btn primary" id="rebuild">Build</button></div>
+      </div>
+      <div class="row"><span class="lbl">Sex</span><div class="seg full" id="sexSeg"><button data-v="" aria-pressed="true">From seed</button><button data-v="female" aria-pressed="false">Female</button><button data-v="male" aria-pressed="false">Male</button></div></div>
+      <div class="row"><span class="lbl">Age</span><div class="seg full" id="ageSeg"><button data-v="adult" aria-pressed="true">Adult</button><button data-v="juvenile" aria-pressed="false">Juvenile</button></div></div>
+      <div class="row"><label for="quality">Quality</label>
+        <select id="quality"><option value="auto">Auto</option><option value="hero">Hero · finest mesh, most fur shells</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="crowd">Crowd · no fur shells</option></select>
+      </div>
+      <p class="note" id="buildNote"></p>
+    </section>
+    <section class="tab" data-tab="world" hidden>
+      <div class="row"><label for="tod">Time of day <output id="todOut"></output></label><input id="tod" type="range" min="0.02" max="0.98" step="0.01" value="0.15"></div>
+      <div class="row"><span class="lbl">Time scale</span><div class="seg full" id="tsSeg"><button data-v="1" aria-pressed="true">1×</button><button data-v="0.5" aria-pressed="false">½×</button><button data-v="0.25" aria-pressed="false">¼×</button><button data-v="0.1" aria-pressed="false">⅒×</button><button data-v="0" aria-pressed="false">Pause</button></div></div>
+      <label class="toggle"><span>Grass<small>two LOD tiles of instanced blades</small></span><input id="tGrass" type="checkbox" checked></label>
+      <label class="toggle"><span>Shadows</span><input id="tShadows" type="checkbox" checked></label>
+      <label class="toggle"><span>Fog</span><input id="tFog" type="checkbox" checked></label>
+      <p class="note">The ground is one height function, evaluated on the GPU for the terrain and handed to the animals as <b>ground(x, z)</b>; the lake is <b>water(x, z)</b>. Birds find perch points on the dead tree and the fence posts.</p>
+    </section>
+    <section class="tab" data-tab="debug" hidden>
+      <label class="toggle"><span>Coverings<small>fur shells &amp; fins, feathers, scales</small></span><input id="tCover" type="checkbox" checked></label>
+      <label class="toggle"><span>Skeleton &amp; IK targets</span><input id="tSkel" type="checkbox"></label>
+      <label class="toggle"><span>Skin weights</span><input id="tWeights" type="checkbox"></label>
+      <label class="toggle"><span>SDF primitives<small>the shapes the body is sculpted from</small></span><input id="tSdf" type="checkbox"></label>
+      <label class="toggle"><span>Footfall diagram</span><input id="tGait" type="checkbox" checked></label>
+      <label class="toggle"><span>Performance HUD</span><input id="tPerf" type="checkbox"></label>
+    </section>
+    <section class="tab" data-tab="modes" hidden>
+      <h3>Crowd</h3>
+      <label class="toggle"><span><span id="crowdLabel">Herd of this species</span><small>a handful of seeds reused, 'crowd' quality</small></span><input id="tCrowd" type="checkbox"></label>
+      <div class="row"><label for="crowdN">Animals <output id="crowdNOut">30</output></label><input id="crowdN" type="range" min="10" max="1000" step="5" value="30"></div>
+      <p class="note" id="crowdNote">The performance HUD shows frame rate, CPU time per animal update, draw calls and geometry.</p>
+      <h3>Compare</h3>
+      <label class="toggle"><span>Split view<small>two animals, synced actions and movement</small></span><input id="tCompare" type="checkbox"></label>
+      <div class="row"><label for="cmpSpecies">Right-hand animal</label><select id="cmpSpecies"></select></div>
+      <div class="row"><label for="cmpSeed">Seed</label><div class="inline"><input id="cmpSeed" type="number" min="0" max="999999" value="2"><button class="btn" id="cmpDice">Random</button><button class="btn primary" id="cmpBuild">Build</button></div></div>
+      <h3>Demo reel</h3>
+      <p class="note">Two choreographed minutes of every species, with "how it's made" reveals. Add <b>&amp;aspect=9:16</b> for a vertical cut.</p>
+      <a class="btn primary" id="demoLink" href="?demo" style="text-align:center;text-decoration:none">Play the demo reel</a>
+    </section>
+    <section class="tab" data-tab="code" hidden>
+      <div class="codebar"><h3>Use in your game</h3><button class="btn primary" id="copy">Copy</button></div>
+      <p class="note">For the animal on screen right now: species, seed, quality and settings.</p>
+      <pre id="code"></pre>
+    </section>
+  </aside>
+
+  <div id="gaitCard" class="glass"><div class="lbl"><span id="gaitTitle">Footfalls</span><span id="gaitName">–</span></div><canvas id="gaitCanvas" width="456" height="132"></canvas></div>
+  <div id="perf" class="glass mono" hidden>
+    <div><div class="v" id="pFps">–</div><div class="k">fps</div></div>
+    <div><div class="v" id="pCpu">–</div><div class="k">cpu ms / animal</div></div>
+    <div><div class="v" id="pAnim">–</div><div class="k">animals</div></div>
+    <div><div class="v" id="pCalls">–</div><div class="k">draw calls</div></div>
+    <div><div class="v" id="pTris">–</div><div class="k">triangles</div></div>
+    <div><div class="v" id="pVerts">–</div><div class="k">vertices</div></div>
+  </div>
+
+  <div id="dock" class="glass">
+    <div id="actionsWrap"><span class="lbl">Actions</span><div id="actions" class="chips" role="group" aria-label="Actions"></div></div>
+    <div class="dockRow">
+      <button class="pill" id="autoBtn" aria-pressed="false">Autopilot</button>
+      <div class="seg" id="gaitSeg" role="group" aria-label="Gait"></div>
+      <div class="speed"><input id="speed" type="range" min="0" max="10" step="0.05" value="0" aria-label="Speed"><output id="speedOut">0 m/s</output></div>
+    </div>
+    <div class="hint"><kbd>W A S D</kbd> move · <kbd>Shift</kbd> run<span class="climbHint"> · <kbd>Space</kbd>/<kbd>C</kbd> <span id="climbWord">climb</span></span> · click the ground to send it there · drag to orbit</div>
+  </div>
+
+  <div id="joy" hidden aria-hidden="true"><div class="knob"></div></div>
+  <div id="climb" hidden><button class="glass" data-c="1" aria-label="Climb">▲</button><button class="glass" data-c="-1" aria-label="Descend">▼</button></div>
+
+  <div id="toast" class="glass" hidden role="status"><span id="toastText">Building</span><div class="bar"><i id="toastBar"></i></div></div>
+
+  <div id="loader"><div class="box">
+    <div class="eyebrow">three.js procedural animals</div>
+    <h1 id="loadName"><i>Procedural animals</i></h1>
+    <p>Nothing is downloaded: the body is sculpted from signed distance fields, skinned, and given its coat right here, in Web Workers.</p>
+    <ol id="steps">
+      <li data-k="mesh">Sculpting and meshing the body</li>
+      <li data-k="weights">Skinning to the skeleton</li>
+      <li data-k="coat">Growing the coat</li>
+      <li data-k="gpu">Uploading to the GPU</li>
+    </ol>
+    <div class="lbar"><i id="loadBar"></i></div>
+    <div id="err"></div>
+  </div></div>
+</div>
+<script>/*__APP__*/</script>

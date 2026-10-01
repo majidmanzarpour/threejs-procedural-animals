@@ -1,0 +1,58 @@
+{
+  "_doc": "Limits for tools/metrics.mjs, set from the hardened cheetah (seed 1) with modest headroom. Every check passes when value <= limit. S = mean leg-chain length of the individual (m). Pops and jitter are sampled at popHz; rad/s* = angular rate x sqrt(S / refLegLength) / max(1, sqrt(Fr / popFroude)).",
+  "refLegLength": 0.8,
+  "requireActions": true,
+  "motion": {
+    "popHz": 240,
+    "popRefLength": 0.774,
+    "popHzRange": [120, 960],
+    "popFroude": 4,
+    "nanFrames": 0,
+    "jitterMax": 3.0,
+    "jitterP99": 0.08,
+    "popAngVel": 75,
+    "popAngAcc": 80,
+    "slideFastFroude": 18,
+    "slideMax": 2.0,
+    "slideFastMax": 1.0,
+    "contactSlideMax": 0.5,
+    "penJoints": 1.0,
+    "penVerts": 1.0,
+    "followErr": 2.0,
+    "contactGap": 1.0,
+    "pathDev": 1.0,
+    "bodySlip": 3.0,
+    "kinkMax": 10
+  },
+  "kinds": {},
+  "mesh": {
+    "_doc": "holesExposed: open boundary edges of the meshed skin that are visible at any quality tier (not hidden by a cross-fade, not buried in another part); a viewer looks into the body through them. 0: the skin is closed wherever it can be seen.",
+    "holesExposed": 0
+  },
+  "stretch": {
+    "edgeMm": 3,
+    "maxPoses": 240,
+    "stretch15": 28,
+    "stretch2": 14,
+    "stretch3": 4,
+    "edge15": 30,
+    "edge2": 14,
+    "compress2": 19,
+    "compress3": 9
+  },
+  "performance": {
+    "updateLod0Ms": 0.12,
+    "updateCrowdMs": 0.08,
+    "tiers": {
+      "hero":   { "vertices": 130000, "triangles": 260000, "drawCalls": 5, "buildMs": 20000 },
+      "high":   { "vertices": 80000,  "triangles": 160000, "drawCalls": 5, "buildMs": 12000 },
+      "medium": { "vertices": 32000,  "triangles": 64000,  "drawCalls": 4, "buildMs": 6000 },
+      "low":    { "vertices": 15000,  "triangles": 30000,  "drawCalls": 4, "buildMs": 4000 },
+      "crowd":  { "vertices": 8000,   "triangles": 16000,  "drawCalls": 1, "buildMs": 3000 }
+    }
+  },
+  "plans": {
+    "_doc": "Per body plan: sampleHz = motion sampling rate (a swimmer's tail beats at up to ~15 Hz; at 60 Hz that oscillation reads as jitter); extra plan checks and their limits (% S, rad).",
+    "swimmer": { "sampleHz": 240, "surfaceJoints": 1.0, "surfaceVerts": 1.0, "spineKink": 0.3 }
+  }
+}

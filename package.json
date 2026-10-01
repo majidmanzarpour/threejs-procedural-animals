@@ -1,0 +1,40 @@
+{
+  "name": "procedural-animals",
+  "version": "0.1.0",
+  "description": "24 fully procedural animals for three.js: SDF-sculpted bodies, dual-quaternion skinning, GPU fur, feathers and scales, IK locomotion and actions. No models, no textures, no downloads.",
+  "license": "MIT",
+  "author": "Majid Manzarpour",
+  "homepage": "https://majidmanzarpour.github.io/threejs-procedural-animals/",
+  "repository": { "type": "git", "url": "git+https://github.com/majidmanzarpour/threejs-procedural-animals.git" },
+  "bugs": { "url": "https://github.com/majidmanzarpour/threejs-procedural-animals/issues" },
+  "type": "module",
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
+    "./species/*": "./src/species/*/index.js",
+    "./worker": "./src/worker.js",
+    "./bake": "./src/bake.js",
+    "./package.json": "./package.json"
+  },
+  "bin": { "procedural-animals-bake": "./tools/bake.mjs" },
+  "sideEffects": ["./src/worker.js"],
+  "files": [
+    "src/**/*.js",
+    "src/index.d.ts",
+    "tools/bake.mjs",
+    "README.md",
+    "LICENSE",
+    "llms.txt"
+  ],
+  "engines": { "node": ">=18" },
+  "peerDependencies": { "three": ">=0.160.0" },
+  "devDependencies": { "esbuild": "^0.28.2", "playwright-core": "1.56", "three": "^0.186.0" },
+  "scripts": {
+    "build:showcase": "node showcase/build.mjs",
+    "build:pages": "node showcase/build.mjs --pages",
+    "test": "node tools/test.mjs"
+  },
+  "keywords": ["three", "threejs", "procedural", "animals", "animation", "ik", "fur", "sdf", "creatures", "gamedev", "webgl"]
+}
