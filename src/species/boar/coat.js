@@ -217,7 +217,7 @@ export function boarCoat(ctx) {
 
   for (let v = 0; v < nV; v++) {
     const p = P(v), n = N(v), r = region[v], tag = tagOf[v];
-    let col, mat = MAT.FUR, fl = bodyFl, mark = 1, gloss = 0.45, agouti = COL.agouti, under = COL.under;
+    let col, mat = MAT.FUR, fl = bodyFl, mark = 1, gloss = 0.45, agouti = COL.agouti, under = COL.under, finOff = 0;
     let pd = 0.02;
     const lb = legBone[v];
     const lbName = lb >= 0 ? BONES[lb].name : '';
@@ -287,6 +287,8 @@ export function boarCoat(ctx) {
     } else {
       // head & jaw: grizzled face, paler along the snout and cheeks, short bristles on the snout,
       // long flaring cheek bristles, bare dark disc
+      // (no silhouette fins on the head (render finMask): its sparse cards drew a see-through fringe round
+      // the face, the skin's outline showing inside it; the shells carry the face's coat)
       const h = HL(p);
       col = mix3(COL.dorsal, COL.face, smoothstep(-0.02, 0.1, h[2]) * 0.8);
       const side = smoothstep(0.02, 0.05, Math.abs(h[0]));
@@ -297,6 +299,8 @@ export function boarCoat(ctx) {
       // sideburns: long bristles on the jowls flaring back
       const jowl = smoothstep(0.0, -0.05, h[1]) * smoothstep(0.09, -0.02, h[2]) * smoothstep(0.03, 0.06, Math.abs(h[0]));
       fl = mix(fl, young ? 0.03 : 0.06 + 0.02 * winter, jowl);
+      // (the face and jowls only: the crest at the back of the skull keeps its fins with the mane)
+      finOff = Math.max(smoothstep(-0.03, 0.04, h[2]), jowl);
       col = mix3(col, COL.face, jowl * 0.5);
       // the bristly crest from the crown on into the mane
       if (r === 2) {
@@ -358,7 +362,7 @@ export function boarCoat(ctx) {
     markSDF[v] = mark;
     furLen[v] = fl;
     tint[v * 4] = col[0]; tint[v * 4 + 1] = col[1]; tint[v * 4 + 2] = col[2]; tint[v * 4 + 3] = mat;
-    surf[v * 4] = gloss; surf[v * 4 + 2] = mat === MAT.FUR ? agouti : 0; surf[v * 4 + 3] = mat === MAT.FUR ? under : 0;
+    surf[v * 4] = gloss; surf[v * 4 + 1] = mat === MAT.FUR ? finOff : 0; surf[v * 4 + 2] = mat === MAT.FUR ? agouti : 0; surf[v * 4 + 3] = mat === MAT.FUR ? under : 0;
   }
   smoothField(furLen, weights.neighbors, 2, (v) => tint[v * 4 + 3] !== MAT.FUR);
 

@@ -15,6 +15,10 @@ export const motion = {
   // engine constants scale with the leg length relative to the cheetah's (0.234 m / 0.774 m)
   unit: 0.3,
   maxSpeed: 8,
+  // (a hopper: its bound already folds the hind legs deep, and its hops carry their own bounce: the
+  // engine's moving crouch, stride roll and variation jittered the hocks and wrists, and sitting back
+  // on its haunches to brake pressed its long flat hind feet into the ground)
+  moveCrouch: 0, stride: { bob: 1, bobSpring: true, roll: 0, vary: 0, brake: 0, gallop: 0 },
   accel: [9, 16],
   decel: 14,
   turnRate: 5.5,

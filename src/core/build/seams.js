@@ -13,6 +13,7 @@
 // ray through the step lands on skin. `measureSeams` sizes the sink from the real mismatch of this individual's
 // surfaces (bind pose, reference space): rays along the normal of every band vertex against the
 // other surfaces' band triangles. Shells and fins keep cross-fading on the true surfaces.
+import { smoothstep } from '../math/vec.js';
 
 // groups: a region's main surface and its eyelid patches are separate surfaces
 const groupOf = (regionOf, patchOf, v) => regionOf[v] * 2 + (patchOf && patchOf[v] ? 1 : 0);
@@ -102,3 +103,81 @@ export function measureSeams({ pos, nrm, index, nV, fade, regionOf, patchOf, hOf
   res.sink = Math.min(0.4 * hBand, Math.max(0.1 * hBand, 1.5 * res.p99));
   return res;
 }
+
+// The head and the body surfaces of a region plan overlap across a cut and cross-fade there, and the core smooths each
+// surface's skin weights over its own mesh, so where the weights curve the two surfaces at one place take bone shares a
+// few per cent apart. Posed (the head bent against the neck), they part by millimetres, and the fur rooted on the
+// surface lying under the other's skin loses its roots: a crisp edge across the coat (a cat's cheek, a dog's throat).
+// The body surface near the cut takes the head surface's weights at the same place (the closest point on the finer head
+// mesh, barycentric), in full across the cross-fade band and fading back to its own over the next 8 mm on the body side.
+// sideOf(x, y, z): signed distance from the cut (> 0 on the head side); band: the cross-fade half-width. Called from a
+// species' coat (the core passes it the weights and uses them after it).
+export function harmonizeSeamWeights({ pos, index, regionOf, regionNames, weights, nV }, sideOf, band) {
+  const { skinIndex, skinWeight } = weights;
+  const bodyR = regionNames.indexOf('body'), headR = regionNames.indexOf('head');
+  if (bodyR < 0 || headR < 0) return 0;
+  const B = band, R = B + 0.008, C = 0.004;
+  const sOf = (v) => sideOf(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]);
+  // head triangles near the cut, in a hash grid by centroid
+  const grid = new Map(), key = (i, j, k) => `${i},${j},${k}`;
+  for (let t = 0; t < index.length; t += 3) {
+    const a = index[t], b = index[t + 1], c = index[t + 2];
+    if (a >= nV || regionOf[a] !== headR || regionOf[b] !== headR || regionOf[c] !== headR) continue;
+    if (Math.abs(sOf(a)) > R + 0.006) continue;
+    const g = [0, 1, 2].map((k) => Math.floor((pos[a * 3 + k] + pos[b * 3 + k] + pos[c * 3 + k]) / 3 / C));
+    const kk = key(...g); let l = grid.get(kk); if (!l) grid.set(kk, (l = [])); l.push(t);
+  }
+  const W0 = Float32Array.from(skinWeight), I0 = Uint16Array.from(skinIndex);
+  const P3 = (v) => [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]];
+  let changed = 0;
+  for (let v = 0; v < nV; v++) {
+    if (regionOf[v] !== bodyR) continue;
+    const s = sOf(v);
+    if (s < -R || s > R) continue;
+    const kMix = s > -B ? 1 : smoothstep(-R, -B, s);
+    if (kMix <= 0) continue;
+    const p = P3(v), g = p.map((x) => Math.floor(x / C));
+    let best = null, bd = 0.004;
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+      const l = grid.get(key(g[0] + a, g[1] + b, g[2] + c)); if (!l) continue;
+      for (const t of l) {
+        const q = closestOnTri(p, P3(index[t]), P3(index[t + 1]), P3(index[t + 2]));
+        if (q.d < bd) { bd = q.d; best = [t, q.u, q.v, q.w]; }
+      }
+    }
+    if (!best) continue;
+    const acc = new Map();
+    const add = (u, f) => { for (let k = 0; k < 4; k++) { const w = W0[u * 4 + k]; if (w > 0) acc.set(I0[u * 4 + k], (acc.get(I0[u * 4 + k]) || 0) + w * f); } };
+    add(v, 1 - kMix);
+    add(index[best[0]], kMix * best[1]); add(index[best[0] + 1], kMix * best[2]); add(index[best[0] + 2], kMix * best[3]);
+    const top = [...acc.entries()].sort((x, y) => y[1] - x[1]).slice(0, 4);
+    let sum = 0; for (const [, w] of top) sum += w;
+    for (let k = 0; k < 4; k++) {
+      if (k < top.length) { skinIndex[v * 4 + k] = top[k][0]; skinWeight[v * 4 + k] = top[k][1] / sum; } else { skinIndex[v * 4 + k] = 0; skinWeight[v * 4 + k] = 0; }
+    }
+    changed++;
+  }
+  return changed;
+}
+
+// closest point on triangle abc to p: distance and barycentric weights (Ericson, Real-Time Collision Detection 5.1.5)
+function closestOnTri(p, a, b, c) {
+  const sub3 = (x, y) => [x[0] - y[0], x[1] - y[1], x[2] - y[2]], dot3 = (x, y) => x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+  const ab = sub3(b, a), ac = sub3(c, a), ap = sub3(p, a);
+  const d1 = dot3(ab, ap), d2 = dot3(ac, ap);
+  let u, v, w;
+  if (d1 <= 0 && d2 <= 0) { u = 1; v = 0; w = 0; } else {
+    const bp = sub3(p, b), d3 = dot3(ab, bp), d4 = dot3(ac, bp);
+    const cp = sub3(p, c), d5 = dot3(ab, cp), d6 = dot3(ac, cp);
+    const vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+    if (d3 >= 0 && d4 <= d3) { u = 0; v = 1; w = 0; }
+    else if (d6 >= 0 && d5 <= d6) { u = 0; v = 0; w = 1; }
+    else if (vc <= 0 && d1 >= 0 && d3 <= 0) { const t = d1 / (d1 - d3); u = 1 - t; v = t; w = 0; }
+    else if (vb <= 0 && d2 >= 0 && d6 <= 0) { const t = d2 / (d2 - d6); u = 1 - t; v = 0; w = t; }
+    else if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const t = (d4 - d3) / (d4 - d3 + (d5 - d6)); u = 0; v = 1 - t; w = t; }
+    else { const den = 1 / (va + vb + vc); v = vb * den; w = vc * den; u = 1 - v - w; }
+  }
+  const q = [0, 1, 2].map((k) => a[k] * u + b[k] * v + c[k] * w);
+  return { d: Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]), u, v, w };
+}
+

@@ -16,6 +16,7 @@ const G = (name, v, f, D, off, o) => ({ name, v, f, D, off, ...o });
 
 export const motion = {
   maxSpeed: 1.6,
+  stride: { gallop: 0 }, // (a hopper's bound is not a gallop: no gallop forequarter drop or reach)
   accel: [2.5, 4],
   decel: 5,
   turnRate: 2.2,

@@ -14,7 +14,8 @@
 //           rim. Smooth short coat.
 // Pups: softer, fluffier, a little paler; shepherd pups are darker (sooty) until the tan comes in.
 import { HEAD_O, MUZZLE_Z0, HS } from './rig.js';
-import { neckS } from './regions.js';
+import { neckS, NECK_CUT } from './regions.js';
+import { harmonizeSeamWeights } from '../../core/build/seams.js';
 import { SDFModel } from '../../core/sdf/sdf.js';
 import { norm, sub, dot, cross, len, add, mul, smoothstep, clamp, mix, rng, fbm3, vnoise3 } from '../../core/math/vec.js';
 import { srgb, mix3, MAT, smoothField } from '../../core/build/coatKit.js';
@@ -449,5 +450,46 @@ export function dogCoat(ctx) {
   }
 
   smoothField(furLen, weights.neighbors, 3, (v) => tint[v * 4 + 3] > 0);
+  // the neck's long ruff and the head's short throat coat meet at the neck cut, where the head and body surfaces
+  // overlap and the coat's regions switch: the hair went from 25 to 9 mm within 15 mm of the cut, and the two
+  // surfaces took different lengths at one place, so the ruff ended in a crisp collar line round the throat. Near the
+  // cut the hair length and the colour (the head's and the neck's colour rules also stepped there, 3 mm wide) are
+  // averaged in space over both surfaces (Gaussian, 13 mm): one field, fading over a few cm
+  {
+    const R = 0.013, cell = 2 * R, grid = new Map(), near = [];
+    const ck = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
+    for (let v = 0; v < nV; v++) {
+      if (tint[v * 4 + 3] !== MAT.FUR) continue;
+      const x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
+      if (Math.abs(neckS(x, y, z)) > 0.09) continue;
+      const k = ck(x, y, z); let l = grid.get(k); if (!l) grid.set(k, (l = [])); l.push(v);
+      if (Math.abs(neckS(x, y, z)) < 0.06) near.push(v);
+    }
+    const out = new Float32Array(near.length), outC = new Float32Array(near.length * 3);
+    near.forEach((v, i) => {
+      const x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
+      const gx = Math.floor(x / cell), gy = Math.floor(y / cell), gz = Math.floor(z / cell);
+      let a = 0, w = 0, cr = 0, cg = 0, cb = 0;
+      for (let ia = -1; ia <= 1; ia++) for (let ib = -1; ib <= 1; ib++) for (let ic = -1; ic <= 1; ic++) {
+        const l = grid.get(`${gx + ia},${gy + ib},${gz + ic}`); if (!l) continue;
+        for (const u of l) {
+          const d2 = (pos[u * 3] - x) ** 2 + (pos[u * 3 + 1] - y) ** 2 + (pos[u * 3 + 2] - z) ** 2;
+          if (d2 > 4 * R * R) continue;
+          const wt = Math.exp(-d2 / (2 * R * R)); a += wt * furLen[u]; w += wt;
+          cr += wt * tint[u * 4]; cg += wt * tint[u * 4 + 1]; cb += wt * tint[u * 4 + 2];
+        }
+      }
+      out[i] = w > 0 ? a / w : furLen[v];
+      if (w > 0) { outC[i * 3] = cr / w; outC[i * 3 + 1] = cg / w; outC[i * 3 + 2] = cb / w; } else { outC[i * 3] = tint[v * 4]; outC[i * 3 + 1] = tint[v * 4 + 1]; outC[i * 3 + 2] = tint[v * 4 + 2]; }
+    });
+    near.forEach((v, i) => {
+      const k = 1 - smoothstep(0.035, 0.06, Math.abs(neckS(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])));
+      furLen[v] = furLen[v] + (out[i] - furLen[v]) * k;
+      for (let c = 0; c < 3; c++) tint[v * 4 + c] += (outC[i * 3 + c] - tint[v * 4 + c]) * k;
+    });
+  }
+  // the head and body surfaces' skin weights made equal across the neck cut (regions.js): they parted at the throat
+  // and the fur rooted on the hidden surface drew a crisp line across the ruff
+  harmonizeSeamWeights(ctx, neckS, NECK_CUT.band);
   return { comb, tint, pattern, mark: markSDF, furLen, patternColor: patCol, surf, region, ventral, tailT };
 }

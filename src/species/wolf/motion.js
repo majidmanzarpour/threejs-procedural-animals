@@ -69,7 +69,7 @@ export const motion = {
   ears: { rest: [0, 0], mobility: 1, speedFlatten: 0.6, twitch: 1, prick: 0.45 },
   breath: { rate: 0.3, amp: 0.012, pant: true, pantRate: 3.0, pantAmp: 0.05, heatSpeed: 10 }, // pants only after a real chase (mouth closed at rest)
   actions: {
-    attack: { style: 'bite-lunge' },
+    attack: { style: 'bite-lunge', paws: false }, // (forefeet planted: the head and neck drive the bite)
     eat: { style: 'tear', dropF: 0.3, dropH: 0.1, ahead: 0.8 }, // (short neck on long legs: the mouth reaches further ahead)
     drink: { dropF: 0.35, dropH: 0.12, ahead: 0.8 },
     jump: { height: 1.0, distance: 3.6 },

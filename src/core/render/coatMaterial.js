@@ -616,7 +616,7 @@ void main() {
   float cDens = mix(300.0, 118.0, smoothstep(0.004, 0.03, furLen)) * uClumpDensity;
   clumpK = (bristle || down) ? 0.0 : smoothstep(uClumpLen.x, uClumpLen.y, furLen);
   float sharp, inClump;
-  alpha = strandLayer(uv, axisId, h, furLen, dens, cDens, clumpK, bristle, sharp, sv, ch, fromC, inClump) * vCoat.w;
+  alpha = strandLayer(uv, axisId, h, furLen, dens, cDens, clumpK, bristle, sharp, sv, ch, fromC, inClump);
   if (uStrandBlend > 0.0) {
     // (opt-in, render hint strandBlend) the second-largest axis plane cross-faded in near a switch of the largest:
     // half and half where the two components are equal, none beyond uStrandBlend
@@ -626,13 +626,13 @@ void main() {
     vec2 uv2 = ax2 == 0.0 ? vRest.yz : (ax2 == 1.0 ? vRest.xz : vRest.xy);
     float w2 = 0.5 * smoothstep(uStrandBlend, 0.0, a0 - b0);
     float sharp2, sv2, fromC2, inClump2; vec4 ch2;
-    float alpha2 = strandLayer(uv2, ax2, h, furLen, dens, cDens, clumpK, bristle, sharp2, sv2, ch2, fromC2, inClump2) * vCoat.w;
+    float alpha2 = strandLayer(uv2, ax2, h, furLen, dens, cDens, clumpK, bristle, sharp2, sv2, ch2, fromC2, inClump2);
     alpha = mix(alpha, alpha2, w2);
     sharp = mix(sharp, sharp2, w2); sv = mix(sv, sv2, w2); ch = mix(ch, ch2, w2); fromC = mix(fromC, fromC2, w2); inClump = mix(inClump, inClump2, w2);
   }
   // down: a soft haze of barbules rather than individual strands
   if (bristle && sv > 0.45) alpha = 0.0; // bristles are sparse
-  if (down) alpha = (0.05 + 0.12 * sharp) * (1.0 - h / 0.3) * vCoat.w;
+  if (down) alpha = (0.05 + 0.12 * sharp) * (1.0 - h / 0.3);
   // thin out the very outer shells
   alpha *= 1.0 - smoothstep(0.85, 1.0, h) * 0.5;
   // undercoat: the hair the strand grid does not resolve (a pelt has thousands of hairs per cm2, the grid
@@ -644,11 +644,15 @@ void main() {
   if (!bristle && !down && uUnder > 0.0) {
     hazeNV = abs(dot(normalize(vN), normalize(cameraPosition - vWorldPos)));
     float tau = uUnder * (1.0 - smoothstep(0.3, 0.9, h)) * mix(1.0, inClump, 0.6 * clumpK);
-    float fill = (1.0 - exp(-tau / (max(uShells, 1.0) * max(hazeNV, 0.2)))) * vCoat.w;
+    float fill = 1.0 - exp(-tau / (max(uShells, 1.0) * max(hazeNV, 0.2)));
     float aS = alpha;
     alpha = 1.0 - (1.0 - alpha) * (1.0 - fill);
     hazeF = alpha > 1e-4 ? (1.0 - aS) * fill / alpha : 0.0;
   }
+  // cross-fade of two overlapping surfaces (vCoat.w): each takes its share of the coat's optical depth, so the
+  // pair composites to one whole coat. Scaling the opacity instead left the middle of the band a quarter thinner
+  // (two half-opaque layers cover 75 %): a pale or dark line where a head and a neck surface meet (a dog's ruff)
+  alpha = vCoat.w > 1e-4 ? 1.0 - pow(max(1.0 - alpha, 1e-4), vCoat.w) : 0.0;
   alpha *= vFin.z;
   if (alpha < 0.02) discard;
 #elif defined( FUR_FIN )

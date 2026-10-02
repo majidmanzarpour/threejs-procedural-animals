@@ -84,7 +84,10 @@ export default {
   coat: boarCoat,
   eyeSpecs: (params) => [1, -1].map((side) => ({ side, spec: EYE, headOrigin: HEAD_O, bone: 'head', look: eyeLook(params) })),
   motion,
-  render: { markColor: srgb(0x1a1716), strandDensity: 360, clumpDensity: 1.6, shellScale: 1, finWidth: 0.35, raiseLen: [0.06, 0.1] },
+  // (the head's silhouette fins are masked off in coat.js: with strandDensity 360 its sparse bristle cards drew a
+  // see-through fringe round the face, the skin's outline inside it; denser strands and a thicker undercoat
+  // keep the coat closed, the clumps keep it coarse)
+  render: { markColor: srgb(0x1a1716), strandDensity: 520, undercoat: 6, clumpDensity: 1.6, shellScale: 1, finWidth: 0.45, finMask: true, raiseLen: [0.06, 0.1] },
 };
 
 // Small dark eyes, round pupil in a dark brown iris (amber-brown in bright light: face1), sclera hidden,

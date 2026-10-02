@@ -99,7 +99,10 @@ const FOOT_DEFAULTS = {
 };
 
 const DEFAULTS = {
-  maxSpeed: 12, accel: [6, 8], decel: 10, turnRate: 2.4, latAccelMax: 10,
+  maxSpeed: 12, accel: [6, 8], decel: 10, turnRate: 2.4, latAccelMax: 10, moveCrouch: 0.05, carpusLock: 1,
+  // stride styling: bounce gain (spring-mass), stride roll, stride-to-stride variation and the braking /
+  // push-off posture (0..1)
+  stride: { bob: 0.5, roll: 1, vary: 1, brake: 1, bobSpring: false, gallop: 1 },
   gallopBlend: [4.5, 9],
   stance: { width: 1, gallopWidth: 0.55, sprawl: 0, crouch: 0, scuff: [12, 24, 0] },
   head: {
@@ -157,6 +160,9 @@ function resolveConfig(spec0, data) {
     decel: spec.decel ?? DEFAULTS.decel,
     turnRate: (spec.turnRate ?? DEFAULTS.turnRate) / sq,
     latAccelMax: spec.latAccelMax ?? DEFAULTS.latAccelMax,
+    moveCrouch: spec.moveCrouch ?? DEFAULTS.moveCrouch,
+    carpusLock: spec.carpusLock ?? DEFAULTS.carpusLock,
+    stride: merge(DEFAULTS.stride, spec.stride),
     gears: spec.gears ? Object.fromEntries(Object.entries(spec.gears).map(([k, v]) => [k, v * sq])) : { walk: 1.2 * sq, trot: 3 * sq },
     gallopBlend: spec.gallopBlend || DEFAULTS.gallopBlend,
     flexBlend: spec.flexBlend || [3.5, 6],
@@ -300,6 +306,10 @@ function resolveConfig(spec0, data) {
   // ---- head
   cfg.headCarry = cfg.head.carriage.map((r) => [r[0], r[1] * s, r[2] * s, r[3]]);
   cfg.headStab = cfg.head.stab;
+  // stride nod [walk, trot, gallop, phase shift] (share of the neck length): hoofed animals nod
+  // clearly at the walk (a horse ~10 cm) and pump the neck at the gallop; paws carry the head
+  // steadier (a cat's hardly moves)
+  if (!cfg.head.nod) cfg.head.nod = (spec.feet?.front?.type || 'digitigrade') === 'unguligrade' ? [0.11, 0.05, 0.12, 0.04] : [0.035, 0.025, 0.05, 0.04];
   const mouthJ = J[cfg.head.mouth] || J.jawTip || J.nose;
   cfg.mouthLocal = mouthJ.clone().lerp(J.nose, 0.35).sub(J.occiput); // bind, relative to the occiput
   cfg.noseLocal = J.nose.clone().sub(J.occiput);
@@ -558,6 +568,10 @@ export class QuadrupedMotion {
     this.water = water || null;
     this.emit = emit || (() => {});
     this.rand = prng((data.seed || 1) * 7919 + 13);
+    // stride-to-stride variation (its own stream, so the tail's idle randomness keeps its sequence):
+    // [frequency, front lift, hind lift, bounce], each from the last stride's value to the next one's
+    this.randS = prng((data.seed || 1) * 104729 + 7);
+    this.sv = { a: [0, 0, 0, 0], b: [0, 0, 0, 0], x: [0, 0, 0, 0] };
     // bone lookups
     this.bone = {};
     this.bindQ = {};
@@ -583,6 +597,7 @@ export class QuadrupedMotion {
     // body actually makes (along the heading, a landing forefoot was left out of reach sideways)
     this.crab = 0;
     this.phase = 0;
+    this.brake = 0;
     this.time = 0;
     this.heat = 0;
     this.lod = 0;
@@ -796,13 +811,22 @@ export class QuadrupedMotion {
     const s = cfg.s;
     g.liftF *= s; g.liftH *= s; g.bobF *= s; g.bobH *= s; g.drop *= s; g.lead *= s;
     g.gallop = smooth(cfg.gallopBlend[0], cfg.gallopBlend[1], vn);
+    // moving crouch: a moving quadruped carries its girdles a little lower than it stands, so its legs
+    // work from flexed joints and can sweep a full stance without reaching straight
+    // (no two strides alike: a few per cent of timing, foot lift and bounce, eased across the stride)
+    const sv = this.sv, sw = smooth(0, 1, this.phase), sg = 1 - 0.5 * smooth(cfg.gallopBlend[0], cfg.gallopBlend[1], vn);
+    for (let i = 0; i < 4; i++) sv.x[i] = lerp(sv.a[i], sv.b[i], sw) * sg * cfg.stride.vary;
+    g.f *= 1 + 0.025 * sv.x[0]; g.liftF *= 1 + 0.1 * sv.x[1]; g.liftH *= 1 + 0.1 * sv.x[2];
+    g.bobF *= 1 + 0.12 * sv.x[3]; g.bobH *= 1 + 0.12 * sv.x[3];
+    const cr = cfg.moveCrouch;
+    g.drop += cr * Math.min(cfg.yS, cfg.yH) * smooth(0.02, 0.5, vn) * lerp(1, lerp(0.6, cfg.legs[0].foot.type === 'unguligrade' ? 1.5 : 0.8, cfg.stride.gallop), g.gallop);
     // per-leg duty factor: a stance may not sweep further than the leg reaches. The table's duty
     // factor asks for a stance sweep of v D / f; where that exceeds the leg's reachable sweep (from
     // its girdle's current height, see reachSpan) the stance is shortened (longer swing / flight),
     // so a planted foot is never dragged and the stance profiles (heel lift, flex) play out in full.
     const v = this.speed;
     for (let j = 0; j < 4; j++) {
-      const sw = this.legs && this.cfg.reachDuty ? this.legs[j].sweep * this.cfg.reachDuty : 0;
+      const sw = this.legs && this.cfg.reachDuty ? this.legs[j].sweep * this.cfg.reachDuty * (j < 2 ? 1 + (this.cfg.legs[0].foot.type === 'unguligrade' ? 0.45 : 0) * g.gallop * this.cfg.stride.gallop : 1) : 0;
       g.DL[j] = v > 1e-3 && sw > 0 ? clamp(g.f * sw / v, 0.04, g.D) : g.D;
     }
     return g;
@@ -1066,7 +1090,11 @@ export class QuadrupedMotion {
     if (band) this._band = band;
     const bnd = this._band;
     const g = this.gaitAt(bnd && this._bandW > 1e-4 ? lerp(vEff, clamp(vEff, bnd[0], bnd[1]), this._bandW) : vEff);
-    if (moving) this.phase = wrap01(this.phase + g.f * dt);
+    if (moving) {
+      const ph0 = this.phase;
+      this.phase = wrap01(this.phase + g.f * dt);
+      if (this.phase < ph0) { const sv = this.sv; for (let i = 0; i < 4; i++) { sv.a[i] = sv.b[i]; sv.b[i] = this.randS() * 2 - 1; } }
+    }
     const st = this.state.stats;
     st.gait = moving ? g.name : 'stand';
     st.freq = moving ? g.f : 0;
@@ -1217,13 +1245,15 @@ export class QuadrupedMotion {
         } else leg.swingT += dt / leg.swingDur;
         leg.w = clamp(leg.swingT, 0, 1);
         const remain = (1 - leg.w) * leg.swingDur;
-        const stanceDur = D / Math.max(g.f, 1e-3);
+        // (centred on the table's stance, not the reach-shortened one: a short stance asked for a short
+        // lead, which kept the next stance short; the reach still caps the landing below)
+        const stanceDur = lerp(D, Math.max(D, g.D), g.gallop * cfg.stride.gallop * (L.foot.type === 'unguligrade' ? 1 : 0)) / Math.max(g.f, 1e-3);
         // land half a stance sweep ahead of the girdle so the sweep is centred under it
         // ... but never further than the leg reaches from where its girdle is now (a landing out of
         // reach leaves the paw hovering above its plant). Continuous in speed: a switch to zero at
         // the 'moving' threshold made a swinging paw jump back 4 cm as the animal came to a halt.
-        let lead = Math.min(v * stanceDur * 0.5 + (L.gz - L.cz) * smooth(0.05, 0.6, vn), L.leadMax) + g.lead * smooth(0, 0.3, vn);
-        if (this.frame > 2) lead = Math.min(lead, Math.max(leg.reachF, 0));
+        let lead = Math.min(v * stanceDur * 0.5 + (L.gz - L.cz) * smooth(0.05, 0.6, vn), L.leadMax * lerp(1, 1.5, g.gallop * cfg.stride.gallop * (L.foot.type === 'unguligrade' ? 1 : 0))) + g.lead * smooth(0, 0.3, vn);
+        if (this.frame > 2) lead = Math.min(lead, Math.max(leg.reachF * (L.front ? 1 + (L.foot.type === 'unguligrade' ? 0.3 : 0) * g.gallop * cfg.stride.gallop : 1), 0));
         this.neutralContact(L, lead, remain, leg.land, leg);
         leg.landLocal.set(this._fl[0], 0, this._fl[1]);
         if (leg.swingT >= 1) {
@@ -1434,16 +1464,39 @@ export class QuadrupedMotion {
     const gw8 = P.gaitW; // weight of the locomotion styling on the body
 
     // --- girdle loads -> vertical bounce, from the gait phase so re-timed steps never jolt the body
+    // (the load follows each foot's own stance progress u, continuous from touchdown (0) to lift-off
+    // (1): with the bounce applied after the body springs, a load read from the gait phase jumped
+    // whenever the reach shortened a stance)
     let loadF = 0, loadH = 0;
     for (const leg of this.legs) {
-      const pl = wrap01(this.phase - g.off[leg.def.idx]), D = g.DL[leg.def.idx];
-      const sn = pl < D ? Math.sin(Math.PI * pl / D) : 0;
+      let sn;
+      if (cfg.stride.bobSpring) { const pl = wrap01(this.phase - g.off[leg.def.idx]), D = g.DL[leg.def.idx]; sn = pl < D ? Math.sin(Math.PI * pl / D) : 0; }
+      else {
+        sn = leg.state === 'stance' && leg.mode === 'gait' ? Math.sin(Math.PI * clamp(leg.u, 0, 1)) : 0;
+        // (gallop: from the table's stance window, not the stance the reach allowed: the forequarters
+        // come down when the forelegs should bear the weight, and that drop is what lets them stay down)
+        if (g.gallop > 0.01 && cfg.stride.gallop > 0) { const pl = wrap01(this.phase - g.off[leg.def.idx]); const sg = pl < g.D ? Math.sin(Math.PI * pl / g.D) : 0; sn = lerp(sn, sg, g.gallop * cfg.stride.gallop); }
+      }
       if (leg.def.front) loadF = Math.max(loadF, sn); else loadH = Math.max(loadH, sn);
     }
+    const lf = cfg.stride.bobSpring ? 1 : 1 - Math.exp(-dt * lerp(28, 21, g.gallop));
+    this._loadF = (this._loadF ?? loadF) + (loadF - (this._loadF ?? loadF)) * lf; loadF = this._loadF;
+    this._loadH = (this._loadH ?? loadH) + (loadH - (this._loadH ?? loadH)) * lf; loadH = this._loadH;
     const moving = vn > 0.06 || Math.abs(this.yawRate) > 0.1;
-    const mv = smooth(0.03, 0.4, vn + Math.abs(this.yawRate) * 0.3) * (this.air.active ? 0 : 1);
-    const bobS = g.bobF * (0.6 - loadF) * 2 * mv * gw8;
-    const bobH = g.bobH * (0.6 - loadH) * 2 * mv * gw8;
+    this._bobGate = expTo(this._bobGate ?? 0, this.air.active ? 0 : 1, dt, 0.05);
+    const mv = smooth(0.03, 0.4, vn + Math.abs(this.yawRate) * 0.3) * this._bobGate;
+    // (spring-mass: lowest at mid stance under the girdle's load, up in the flight; mostly downward, so
+    // a girdle is not raised away from feet landing or pushing off at the ends of their reach)
+    // (stride.bobSpring: the bounce goes through the girdle springs as a target instead, smoothed and
+    // late: hoppers, whose hops were tuned on it, land their flat hind feet clear of the ground with it)
+    const bK = cfg.stride.bob, bO = cfg.stride.bobSpring ? 0.6 : 0.3;
+    // (at the gallop the forequarters drop onto the landing forelegs, much more than a trot's bounce:
+    // the drop is what lets a galloping foreleg sweep its long stance)
+    // (paws: half the drop: their flexible backs bend into the stride, and more stretched the neck)
+    const galB = 1 + (cfg.legs[0].foot.type === 'unguligrade' ? 1 : 0.5) * cfg.stride.gallop;
+    let bobS = g.bobF * (bO - loadF) * 2 * bK * mv * gw8 * lerp(1, galB, g.gallop);
+    let bobH = g.bobH * (bO - loadH) * 2 * bK * mv * gw8 * lerp(1, 1 + (galB - 1) * 0.25, g.gallop);
+    const bobT = cfg.stride.bobSpring;
     const crouch = clamp((this.input.crouch || 0) + cfg.stance.crouch, 0, 1);
 
     // terrain under the girdles (max of two samples along the body when resting on the ground)
@@ -1460,8 +1513,21 @@ export class QuadrupedMotion {
     const dl = tv(0, -1, 0).applyQuaternion(tqc(this.qBprev).invert());
     const restF = restHeight(cfg.chest, cfg.yS, dl), restH = restHeight(cfg.pelvis, cfg.yH, dl);
     const dropF = P.dropF + crouch * 0.3, dropH = P.dropH + crouch * 0.18;
-    let yShT = tS + bobS - g.drop * gw8 - dropF * (cfg.yS - restF);
-    let yHpT = tH + bobH - g.drop * gw8 - dropH * (cfg.yH - restH);
+    // (the gait's bounce is added after the body's height and pitch springs, below: through them, a
+    // bounce at twice the stride frequency came out at a quarter of its size and a third of a cycle
+    // late, the body highest as a trot's feet landed and sinking through the stance)
+    let yShT = tS - g.drop * gw8 - dropF * (cfg.yS - restF) + (bobT ? bobS : 0);
+    let yHpT = tH - g.drop * gw8 - dropH * (cfg.yH - restH) + (bobT ? bobH : 0);
+    if (bobT) { bobS = 0; bobH = 0; }
+    // braking and pushing off: hard braking sits the body back on its haunches (hindquarters down,
+    // forequarters a little up, the head raised: solveHead), pushing off lowers it into the effort;
+    // through the girdle springs, so the body rocks forward and settles as the braking ends
+    const aFw = this.accel.x * fr.F.x + this.accel.z * fr.F.z;
+    this._aF = expTo(this._aF ?? 0, clamp(aFw, -20 * cfg.sk, 20 * cfg.sk), dt, 0.12);
+    this.brake = clamp(-this._aF / 9.81, 0, 0.9) * gw8 * smooth(0.3, 1.5, vn + 0.5) * cfg.stride.brake;
+    const push = clamp(this._aF / 9.81, 0, 0.6) * gw8 * cfg.stride.brake;
+    yHpT -= (0.12 * this.brake + 0.04 * push) * (cfg.yH - restH);
+    yShT += (0.025 * this.brake - 0.04 * push) * (cfg.yS - restF);
     if (P.frontHW > 0) yShT = lerp(yShT, tS + P.frontH - cfg.yS, P.frontHW); // (sit: straight forelegs)
     // head reach: lower the forequarters when the mouth target is below what the neck can reach
     if (P.headReach > 0.01 && P.headW > 0.01) {
@@ -1520,19 +1586,22 @@ export class QuadrupedMotion {
     // body frame
     const zS = cfg.zS, zH = cfg.zH;
     const pitchT = Math.atan2(ySh - yHp, zS - zH);
-    const pitch = this.pitch.step(pitchT, 16 * P.bodyOmega, dt) + P.pitch;
-    const baseY = this.height.step((ySh * -zH + yHp * zS) / (zS - zH), 20 * P.bodyOmega, dt);
+    const pitch = this.pitch.step(pitchT, 16 * P.bodyOmega, dt) + P.pitch + Math.atan2(bobS - bobH, zS - zH);
+    const baseY = this.height.step((ySh * -zH + yHp * zS) / (zS - zH), 20 * P.bodyOmega, dt) + (bobS * -zH + bobH * zS) / (zS - zH);
     // (leaning into a turn is dynamic balance: a walking quadruped stands on three legs and turns level,
     // a trot leans a little and a canter or gallop fully, by the Froude number v^2 / (g leg): the walk
     // leaned up to 12 deg into its turns)
     let bankT = clamp(-Math.atan2(v * this.yawRate, 9.81) * 0.85 * cfg.bankScale, -0.6, 0.6) * gw8 * smooth(0.5, 2.5, v * v / (9.81 * cfg.legLen));
-    if (moving && g.lat > 0) bankT += Math.sin(TAU * (this.phase + 0.1)) * 0.03 * (1 - g.gallop) * gw8;
+    // stride roll (the body rolls toward the supporting side once a stride at the walk and trot), added
+    // after the bank spring, which filtered it to a third: hoofed trotters (no lateral spine wave in
+    // their table) roll too, a little less
+    const rollS = Math.sin(TAU * (this.phase + 0.1)) * (g.lat > 0 ? 0.03 : 0.018) * (1 - g.gallop) * gw8 * mv * cfg.stride.roll;
     if (P.groundW > 0.01) {
       // lie along the terrain's cross slope
       const nrm = this.terrainN(this.pos.x, this.pos.z, tv());
       bankT += P.groundW * Math.atan2(nrm.dot(fr.Lf), nrm.y);
     }
-    const bank = this.bank.step(bankT, 10, dt) + P.roll;
+    const bank = this.bank.step(bankT, 10, dt) + P.roll + rollS;
 
     // spine bending
     let flexT = 0, latT = 0, latTH = 0;
@@ -1574,7 +1643,7 @@ export class QuadrupedMotion {
     this.buildBody(origin, pitch, bank, flex, lat, latH);
     // keep the girdles where the legs want them while the spine arches
     // (in a banked turn the girdle targets already hold the leaned heights, see above)
-    const eS = ySh + this.lift + P.lift + cfg.yS - fr.shC.y, eH = yHp + this.lift + P.lift + cfg.yH - fr.hipC.y;
+    const eS = ySh + bobS + this.lift + P.lift + cfg.yS - fr.shC.y, eH = yHp + bobH + this.lift + P.lift + cfg.yH - fr.hipC.y;
     origin.y += (eS + eH) * 0.5;
     let pitch2 = pitch + Math.atan2(eS - eH, zS - zH);
     this.buildBody(origin, pitch2, bank, flex, lat, latH);
@@ -1734,7 +1803,10 @@ export class QuadrupedMotion {
       // minimum swing) folds the paw less, so it does not fold faster
       const nom = (1 - g.DL[L.idx]) / Math.max(g.f, 1e-3);
       leg.swingAmp = gaitMode ? clamp(leg.swingNom / nom, 0.35, 1) : 1;
-      beta = leg.betaStart * (1 - smooth(0.0, 0.45, w)) + foot.curl * DEG * Math.sin(Math.PI * w) * smooth(0.05, 0.3, w) * (1 - smooth(0.75, 1, w)) * (gaitMode ? 1 : 0.4) * leg.swingAmp;
+      // (the toe curl / hoof flip is half at the walk: a walking horse's hoof barely flips, and the
+      // full flip, carried into the cannon, folded the knee 100 deg in a tenth of a second)
+      const walkC = lerp(0.5, 1, smooth(0.35, 0.6, 1 - g.D));
+      beta = leg.betaStart * (1 - smooth(0.0, 0.45, w)) + foot.curl * DEG * walkC * Math.sin(Math.PI * w) * smooth(0.05, 0.3, w) * (1 - smooth(0.75, 1, w)) * (gaitMode ? 1 : 0.4) * leg.swingAmp;
       // (gait steps only, like the stance side: an idle re-step landed toe-up and snapped flat)
       if (foot.heelStrike) beta -= foot.heelStrike * DEG * smooth(0.7, 1, w) * gaitMode;
     }
@@ -1746,7 +1818,10 @@ export class QuadrupedMotion {
         // swing: from the stance's last angle (an early lift-off leaves the carpus flexed) into the
         // fold and back to the landing angle; C1 at both ends (no angular-velocity step at lift-off /
         // touchdown)
-        const w = leg.w, fold = smooth(0, 0.45, w) * (1 - smooth(0.55, 1, w));
+        // (hooves: the knee folds through the first half of the swing and opens over the second, into
+        // the carpal lock above)
+        const hoofS = L.foot.type === 'unguligrade' && cfg.carpusLock > 0;
+        const w = leg.w, fold = hoofS ? smooth(0, 0.4, w) * (1 - smooth(0.42, 0.95, w)) : smooth(0, 0.45, w) * (1 - smooth(0.55, 1, w));
         ft.k = lerp(leg.kStart, -L.a0, smooth(0, 0.35, w)) + (g.fold * (gaitMode ? 1 : 0.45) + L.a0) * fold * leg.swingAmp;
       }
     }
@@ -1778,9 +1853,9 @@ export class QuadrupedMotion {
     if (wSum < 1e-4) return ft;
     const lx = L.cx * L.s, gy = L.front ? cfg.yS : cfg.yH;
     const tmpC = tv(), tmpN = tv(), tmpF = tv(), tmpD = tv();
-    const mixIn = (w, beta2, k2, dirW2) => {
+    const mixIn = (w, beta2, k2, dirW2, wc = w) => {
       if (w < 1e-4) return;
-      ft.c.lerp(tmpC, w); ft.n.lerp(tmpN, w).normalize(); ft.fwd.lerp(tmpF, w);
+      ft.c.lerp(tmpC, wc); ft.n.lerp(tmpN, w).normalize(); ft.fwd.lerp(tmpF, w);
       ft.fwd.addScaledVector(ft.n, -ft.fwd.dot(ft.n)).normalize();
       ft.beta = lerp(ft.beta, beta2, w); ft.k = lerp(ft.k, k2, w);
       if (dirW2 > 0) { ft.dir.lerp(tmpD, w / Math.max(1e-4, ft.dirW + w)).normalize(); }
@@ -1812,7 +1887,15 @@ export class QuadrupedMotion {
         onGround(hw(lx, shz + 0.02 * L.len, tmpC));
       } else onGround(hw(lx * 1.35, cfg.zH + L.L1 * 0.7 + L.L3 * 0.4, tmpC));
       hN(tmpC, tmpN); fwdFlat(tmpF); tmpD.copy(tmpF);
-      mixIn(pl.sit, 0, L.front ? -L.a0 * 0.6 : 0, L.front ? 0 : 1);
+      // (hind: the paw stays where it stood while the haunches go down and the hock folds over it,
+      // then steps forward to beside the haunch in a short lifted step; it slid forward along the
+      // ground through the whole sit, the legs straightening out ahead of the lowering rump)
+      let wc = pl.sit;
+      if (!L.front) { wc = smooth(0.4, 0.95, pl.sit); tmpC.y += Math.sin(Math.PI * wc) * 0.1 * L.len; }
+      // (hooves: the hind hoof flips back so the cannon and the hock rest on the ground; standing on its
+      // toe it held the hock and the cannon in the air and the rump off the ground)
+      const flipH = !L.front && L.foot.type === 'unguligrade' && L.C ? -48 * DEG : 0;
+      mixIn(pl.sit, flipH, L.front ? -L.a0 * 0.6 : 0, L.front ? 0 : 1, wc);
     }
     if (pl.side > 0) {
       // lying on the side: legs out from the body, resting on the ground
@@ -2051,6 +2134,31 @@ export class QuadrupedMotion {
       if (hz > 1e-6 && dy !== dir.y) { const k2 = Math.sqrt(Math.max(0, 1 - dy * dy)) / hz; dir.set(dir.x * k2, dy, dir.z * k2); }
     }
     const Wt = tv().copy(M).addScaledVector(dir, L.Lmc);
+    // hooves: the carpus locks straight under load (the stay apparatus): through the stance the
+    // forearm and cannon are aimed as one piece at the fetlock, the elbow and shoulder taking up the
+    // body's height; it bent 30-45 deg in a lowered girdle's stance and snapped straight at each step
+    // (it straightens at the end of the swing, so the leg lands as one straight column and the lock
+    // runs on into the stance without a step)
+    // (eased in and out: switched off at once by a jump's take-off or a posture, the cannon flicked)
+    if (L.foot.type === 'unguligrade' && cfg.carpusLock > 0) {
+      const wT = leg.mode === 'gait' && !this.air.active ? (leg.state === 'stance' ? 1 - smooth(0.75, 1, leg.u) : smooth(0.45, 0.97, leg.w)) * smooth(0.5, 1, this.P.legGait) * cfg.carpusLock : 0;
+      leg.lockW = expTo(leg.lockW ?? 0, wT, dt, wT > (leg.lockW ?? 0) ? 0.02 : 0.06);
+      const wl = leg.lockW;
+      if (wl > 1e-3) {
+        const shP = tv().copy(L.jShoulder).sub(L.pivot).applyQuaternion(tqc(qCh).multiply(tqa(X1, -prot))).add(pivotW);
+        const a = L.Lh, bL = L.Lr + L.Lmc, e1 = tv().subVectors(M, shP);
+        const d = clamp(e1.length(), Math.abs(a - bL) + 0.01 * cfg.k, (a + bL) * 0.995);
+        e1.normalize();
+        const e2 = tv().copy(bodyF).negate().addScaledVector(e1, bodyF.dot(e1));
+        if (e2.lengthSq() > 1e-8) {
+          e2.normalize();
+          const cA = clamp((a * a + d * d - bL * bL) / (2 * a * d), -1, 1), sA = Math.sqrt(1 - cA * cA);
+          const elbow = tv().copy(shP).addScaledVector(e1, a * cA).addScaledVector(e2, a * sA);
+          const wristL = tv().subVectors(M, elbow).normalize().multiplyScalar(L.Lr).add(elbow);
+          Wt.lerp(wristL, wl);
+        }
+      }
+    }
     // shoulder position on its arc about the pivot: sh(pr) = pivot + A cos pr + B sin pr + C
     // (rotation about the chest's lateral axis), so the golden-section search is all scalar math
     const r0 = tv().copy(L.jShoulder).sub(L.pivot).applyQuaternion(qCh);
@@ -2382,6 +2490,23 @@ export class QuadrupedMotion {
   }
 
   // ----------------------------------------------------------------- neck & head
+  // stride nod of the head: { a: amplitude (share of the neck length), y: shape -1..1 (1 = lowest) }
+  strideNod(vn) {
+    const g = this.gait, P = this.P, cfg = this.cfg, out = this._nod || (this._nod = { a: 0, y: 0 });
+    const tb = cfg.head.nod;
+    const mv = smooth(0.05, 0.5, vn) * P.gaitW * (1 - P.headW) * (1 - 0.6 * (P.lookW || 0)) * this._bobGate;
+    const lg = smooth(0.3, 0.8, this.P.legGait);
+    if (!tb || mv * lg < 1e-3) { out.a = 0; out.y = 0; return out; }
+    const gal = g.gallop, trot = smooth(0.35, 0.6, 1 - g.D) * (1 - gal);
+    out.a = (tb[0] * (1 - trot - gal) + tb[1] * trot + tb[2] * gal) * mv * lg;
+    const c0 = g.off[0] + 0.5 * g.DL[0] + (tb[3] || 0), c1 = g.off[1] + 0.5 * g.DL[1] + (tb[3] || 0);
+    const two = Math.cos(4 * Math.PI * (this.phase - c0));
+    const cm = c0 + 0.5 * d01(c0, c1);
+    const one = Math.cos(2 * Math.PI * (this.phase - cm));
+    out.y = lerp(two, one, gal);
+    return out;
+  }
+
   solveHead(dt) {
     const cfg = this.cfg, J = this.J, fr = this.fr, g = this.gait, P = this.P, inp = this.input;
     const vn = this.speed / cfg.sq, s = cfg.k, gal = g.gallop;
@@ -2410,6 +2535,17 @@ export class QuadrupedMotion {
     const relS = tv(this.hx.step(rel.x, w, dt), this.hy.step(rel.y, w * 0.85, dt), this.hz.step(rel.z, w, dt));
     const stabP = relS.applyQuaternion(qHeading).add(ref);
     const Otgt = tv().copy(rigid).lerp(stabP, stab);
+    // stride nod: the head and neck dip as the forelegs take the weight (walk and trot: at each
+    // foreleg's mid stance, twice a stride; canter and gallop: once, a pump down and forward as the
+    // forelegs land and back up through the hind stance). Added after the stabilisation, whose
+    // filter would swallow a 2 Hz nod. cfg.head.nod: [walk, trot, gallop] amplitude / neck length
+    const nod = this.strideNod(vn);
+    // (braking: the head comes up and back, see pose)
+    if (this.brake > 0.01) { Otgt.y += 0.09 * this.brake * cfg.neckLen; Otgt.addScaledVector(fr.F, -0.04 * this.brake * cfg.neckLen); }
+    if (nod.a !== 0) {
+      Otgt.y -= nod.a * nod.y * cfg.neckLen;
+      Otgt.addScaledVector(fr.F, 0.45 * nod.a * nod.y * cfg.neckLen * gal);
+    }
     // posture head target (world occiput position), e.g. mouth to the ground
     if (P.headW > 0.001) Otgt.lerp(P.headPos, P.headW);
     // one-arc neck of constant length, leaving the chest along its own neck direction
@@ -2455,7 +2591,7 @@ export class QuadrupedMotion {
     const yaw = this.lookYaw.step(yawT, 5.5 * hw, dt);
     const hp = this.headPitch.step(pitchT, 5.5 * hw, dt);
     const hr = this.headRollS.step(P.headRoll, 6 * hw, dt);
-    const qHead = tq().setFromAxisAngle(UP, this.heading + yaw).multiply(tqa(X1, hp)).multiply(tqa(Z1, -0.25 * this.bank.x + hr));
+    const qHead = tq().setFromAxisAngle(UP, this.heading + yaw).multiply(tqa(X1, hp + 0.4 * nod.a * nod.y)).multiply(tqa(Z1, -0.25 * this.bank.x + hr));
     const carried = tqc(qCh).multiply(qInv).multiply(qHead);
     qHead.copy(carried.slerp(qHead, lerp(0.7, 0.95, clamp(stab / 0.62, 0, 1)) * (1 - P.headLimp)));
     // the nose / chin never enter the ground: pitch the head up about the occiput just enough
@@ -2653,6 +2789,41 @@ export class QuadrupedMotion {
     const sub = this.lod >= 2 ? 1 : this.lod === 1 ? Math.max(1, Math.ceil(dt / (1 / 60))) : Math.max(1, Math.ceil(dt / (1 / 120)));
     const hstep = dt / sub;
     for (let i = 1; i < n; i++) tl.rel[i].setFromUnitVectors(U[i - 1], U[i]);
+    // follow-through: the stride carries the tail's root up and down and from side to side; the tail
+    // lags it like a chain of pendulums: the root's acceleration (low-passed, vertical and sideways)
+    // spins each segment by d x (-a) / its distance from the root, and the springs swing it back.
+    // (Through the spring targets it was filtered away: the root's bounce at twice the stride frequency
+    // is above the springs' own) cfg.tail.inertia: 1 default, 0 for a stiff stub
+    {
+      const rb = fr.tailBase;
+      if (!tl.rootInit || dt <= 0) { tl.rP = rb.clone(); tl.rV = new THREE.Vector3(); tl.rA = new THREE.Vector3(); tl.rootInit = true; }
+      else {
+        const vNow = tv().subVectors(rb, tl.rP).multiplyScalar(1 / dt);
+        const aNow = tv().subVectors(vNow, tl.rV).multiplyScalar(1 / dt);
+        tl.rP.copy(rb); tl.rV.copy(vNow);
+        // (the forward part is the body's own speeding up and braking, which the balance model and the
+        // carriage table handle: only the vertical and sideways parts; sideways fades in turns)
+        const F = fr.F, aF = aNow.x * F.x + aNow.z * F.z;
+        aNow.x -= F.x * aF; aNow.z -= F.z * aF;
+        const tw = 1 - smooth(0.2, 0.8, Math.abs(this.yawRate));
+        aNow.x *= tw; aNow.z *= tw;
+        aNow.clampLength(0, 14 * cfg.sk);
+        tl.rA.lerp(aNow, 1 - Math.exp(-dt / 0.03));
+      }
+      // (locomotion only: a hit or a fall jolts the hips far harder than a stride, and the root
+      // segment, which carries the skin of the rump, stays with the pelvis)
+      const inr = (T.inertia ?? 1) * P.gaitW * P.legGait * this._bobGate * smooth(0.05, 0.4, vn);
+      if (inr > 0) {
+        let cum = 0;
+        const ax = tv();
+        for (let i = 0; i < n; i++) {
+          cum += tl.len[i];
+          if (i === 0) continue;
+          ax.crossVectors(D[i], tl.rA).multiplyScalar(-inr * dt / Math.max(cum - 0.5 * tl.len[i], 0.15 * cfg.k)).clampLength(0, 2 * dt * 60);
+          Wv[i].add(ax);
+        }
+      }
+    }
     integrateTail(D, Wv, U, tl.rel, n, sub, hstep, stiffen, wAbs);
     // bones along the chain; ground contact as a hard constraint (rotate a segment up just enough)
     tl.p[0].copy(fr.tailBase);

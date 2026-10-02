@@ -14,6 +14,7 @@ const G = (name, v, f, D, off, o) => ({ name, v, f, D, off, ...o });
 
 export const motion = {
   maxSpeed: 10.5,
+  stride: { gallop: 0.5 }, // (short legs under a heavy forehand: half the gallop drop and reach, more stretched the neck)
   accel: [4, 8],
   decel: 8,
   turnRate: 3.0, // agile for its mass: tight turns pivoting on the forehand

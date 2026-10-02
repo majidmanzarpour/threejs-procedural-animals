@@ -47,9 +47,10 @@ export const motion = {
     back: 0.055,
   },
   head: {
-    // [speed, raise (m), reach (m), pitch (rad, + = nose down)]: head carried up standing and walking,
+    // [speed, raise (m), reach (m), pitch (rad, + = nose down)]: head carried up standing and walking (standing: raised
+    // 7 cm, not 9.5 cm and pulled back 4.5: that bunched the throat skin under the jaw into a fold),
     // lowered toward the back line in the shepherd's ground-covering trot, stretched in the gallop
-    carriage: [[0, 0.095, -0.045, -0.04], [1.0, 0.03, -0.01, 0.1], [2.4, -0.065, 0.045, 0.3], [4.4, -0.06, 0.05, 0.25], [9, -0.06, 0.07, 0.18]],
+    carriage: [[0, 0.07, -0.02, -0.04], [1.0, 0.03, -0.01, 0.1], [2.4, -0.065, 0.045, 0.3], [4.4, -0.06, 0.05, 0.25], [9, -0.06, 0.07, 0.18]],
     stab: [[0, 0], [0.9, 0.22], [1.8, 0.3], [4.5, 0.34], [9, 0.6]],
     neckBend: 55, neckPivot: 0.6, yaw: 1.25, pitchUp: 0.65, pitchDown: 0.75,
   },
@@ -71,7 +72,7 @@ export const motion = {
   ears: { rest: [0, 0], mobility: 1, speedFlatten: 0.6, twitch: 1, prick: 0.45 },
   breath: { rate: 0.3, amp: 0.012, pant: true, pantRate: 3.6, pantAmp: 0.045, heatSpeed: 3.2 },
   actions: {
-    attack: { style: 'bite-lunge' },
+    attack: { style: 'bite-lunge', paws: false }, // (forefeet planted: the head and neck drive the bite)
     eat: { style: 'tear', dropF: 0.3, dropH: 0.1, ahead: 0.9, pitch: 1.0 },
     drink: { dropF: 0.32, dropH: 0.1, ahead: 0.9, pitch: 1.0 },
     jump: { height: 0.9, distance: 2.8 },

@@ -415,7 +415,13 @@ const ONESHOTS = {
         mx(P, 'jaw', 0.65, w * smooth(0.25, 0.42, t) * (1 - smooth(0.46, 0.52, t)));
         mx(P, 'jawOmega', 30, w);
         mx(P, 'gaitW', 1 - 0.7 * still, w * (crouch + lunge > 0 ? 1 : 0));
-        if (still > 0.2) reachF(lunge * w, 0.8 * still, 0.55, 0.35);
+        // (tune.paws: false for canids, whose forefeet stay planted while the head and neck drive the
+        // bite; felids and rodents reach and grab with the forepaws)
+        if (inst.tune.paws === false) {
+          const snap = smooth(0.55, 0.7, t) * (1 - smooth(0.75, 0.95, t));
+          mx(P, 'neckReach', 0.17, lunge * w); mx(P, 'headRaise', -0.07, lunge * w); mx(P, 'headPitch', 0.18, lunge * w);
+          mx(P, 'dropF', 0.18, lunge * w * still); mx(P, 'fwd', -0.05, snap * w * still);
+        } else if (still > 0.2) reachF(lunge * w, 0.8 * still, 0.55, 0.35);
       } else if (inst.style === 'pounce') {
         const crouch = smooth(0, 0.35, t) * (inst.jumped ? 0 : 1);
         const wig = inst.jumped ? 0 : Math.sin(t * 28) * smooth(0.25, 0.4, t) * 0.02;

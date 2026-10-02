@@ -35,8 +35,8 @@ export const motion = {
   // 2.35 Hz, which left 2-frame fore stances dragged in sprint turns and jerking elbows at the sprint)
   //    name      v     f     D     [FL,   FR,   HL,  HR]
   gaits: [
-    G('walk', 0.0, 0.75, 0.72, [0.25, 0.75, 0.0, 0.5], { liftF: 0.08, liftH: 0.07, bobF: 0.03, bobH: 0.03, flex: 0, lat: 0.02, fold: 0.6, heel: 30, tail: 0, drop: 0 }),
-    G('walk', 1.7, 0.98, 0.63, [0.25, 0.75, 0.0, 0.5], { liftF: 0.1, liftH: 0.085, bobF: 0.08, bobH: 0.08, flex: 0, lat: 0.025, fold: 0.75, heel: 40, tail: 0.1, drop: 0.01 }),
+    G('walk', 0.0, 0.75, 0.72, [0.25, 0.75, 0.0, 0.5], { liftF: 0.08, liftH: 0.07, bobF: 0.03, bobH: 0.03, flex: 0, lat: 0.02, fold: 0.3, heel: 30, tail: 0, drop: 0 }),
+    G('walk', 1.7, 0.98, 0.63, [0.25, 0.75, 0.0, 0.5], { liftF: 0.1, liftH: 0.085, bobF: 0.08, bobH: 0.08, flex: 0, lat: 0.025, fold: 0.42, heel: 40, tail: 0.1, drop: 0.01 }),
     G('trot', 2.5, 1.3, 0.5, [0.52, 0.02, 0.0, 0.5], { liftF: 0.15, liftH: 0.12, bobF: 0.07, bobH: 0.07, flex: 0.01, lat: 0.0, fold: 1.0, heel: 50, tail: 0.35, drop: 0.02 }),
     G('trot', 4.2, 1.5, 0.42, [0.52, 0.02, 0.0, 0.5], { liftF: 0.18, liftH: 0.15, bobF: 0.08, bobH: 0.08, flex: 0.015, lat: 0.0, fold: 1.1, heel: 55, tail: 0.45, drop: 0.02 }),
     G('canter', 5.8, 1.75, 0.45, [0.3, 0.55, 0.0, 0.27], { liftF: 0.2, liftH: 0.16, bobF: 0.035, bobH: 0.05, flex: 0.05, lat: 0, fold: 1.15, heel: 55, tail: 0.55, drop: 0.03 }),
@@ -90,7 +90,7 @@ export const motion = {
     // a 1 m jump (0.7 m flight from the canter) lands the forelegs in step with the canter; the landing
     // sink comes from the engine's landing springs, the crouch adds a little knee give
     jump: { height: 1.0, distance: 3.6, land: [0.15, 0.12] },
-    sit: { dropH: 0.85 },
+    sit: { dropH: 1.0 }, // (the hind cannons fold flat under the haunches and the rump rests on the ground)
     // kneels on the forelegs first, then lowers the hindquarters; gets up forelegs first
     lie: { down: 'front', up: 'front' },
     sleep: { style: 'lateral', down: 'front', up: 'front' },

@@ -10,6 +10,8 @@ const G = (name, v, f, D, off, o) => ({ name, v, f, D, off, ...o });
 export const motion = {
   unit: 1, // the reference size the engine's own constants were tuned on
   maxSpeed: 29,
+  moveCrouch: 0.02, // (its long, light legs need little extra flex; more stretched the neck and flank skin)
+  stride: { bob: 0.3 }, // (a sprinter runs flat: its back flexes, the body hardly bounces)
   accel: [7, 10],
   decel: 11,
   turnRate: 2.4,
@@ -39,6 +41,8 @@ export const motion = {
     back: 0.075,
   },
   head: {
+    // stride nod [walk, trot, gallop, phase]: a cheetah holds its head famously still while it runs
+    nod: [0.03, 0.015, 0.012, 0.04],
     // [speed, raise (m), reach (m), pitch (rad, + = nose down)]
     carriage: [[0, 0.012, -0.012, 0], [4.5, 0.012, -0.012, 0], [9, -0.06, 0.045, 0.15]],
     // [speed, stabilisation 0..1]

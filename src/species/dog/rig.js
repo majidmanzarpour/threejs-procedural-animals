@@ -111,6 +111,10 @@ export function dogRig(params = {}) {
       bones: ['head', 'neck2', 'neck1', 'chest', 'spine3', 'spine2', 'spine1', 'pelvis', ...Array.from({ length: TAIL_SEGS }, (_, i) => 'tail' + i)],
       // the skull's influence reaches back into the nape; wider on the throat side (3rd value)
       blend: { 1: [-0.09, 0.18, 3] },
+      // (core weights.js `cascade`: the skull's throat lever reaches past the mid-neck joint, where the default cut its
+      // share off: carried high, the head bunched the throat skin into a fold along that line, and the ruff's shells
+      // drew it as a crisp line round the throat. Faded out over the next segment instead)
+      cascade: { 1: 0.25 },
       // a hanging tail (shepherd) lies behind the thighs: body skin blends into it only at its base
       bodyTail: params.variant === 'terrier' ? 1 : 0,
     },
